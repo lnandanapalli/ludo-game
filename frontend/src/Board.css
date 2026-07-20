@@ -1,0 +1,11 @@
+.ludo-board {
+  border-collapse: collapse;
+  width: 90vw;
+  max-width: 600px;
+  margin: 0 auto;
+  table-layout: fixed;
+}
+
+.ludo-board td {
+  padding: 0;
+}
