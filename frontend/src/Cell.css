@@ -3,6 +3,7 @@
   height: min(6vw, 40px);
   border: 1px solid #999;
   box-sizing: border-box;
+  position: relative;
 }
 
 .cell--yard {border: none;}
@@ -38,3 +39,25 @@
 
 .cell--empty { background-color: #ddd; }
 .cell--path  { background-color: white; }
+
+.pawn-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1px;
+  pointer-events: none;
+}
+
+.pawn-icon {
+  width: 70%;
+  height: 70%;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5));
+}
+
+.pawn-layer--multi .pawn-icon {
+  width: 46%;
+  height: 46%;
+}
