@@ -10,10 +10,14 @@ def test_online_and_local():
         host = browser.new_page()
         host.goto(os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173"))
         host.get_by_role("button", name="Online", exact=True).click()
+        host.get_by_label("red player name").fill("Nova")
+        host.get_by_role("button", name="red owl").click()
         host.get_by_text("Create online room").click()
         invite = host.get_by_label("Invite link").input_value()
         guest = browser.new_page(viewport={"width": 390, "height": 844})
         guest.goto(invite)
+        guest.get_by_label("guest player name").fill("Mika")
+        guest.get_by_role("button", name="guest panda").click()
         guest.get_by_role("button", name="Join room").click()
         roll = host.get_by_role("button", name="Roll die")
         expect(roll).to_be_enabled()
@@ -24,8 +28,11 @@ def test_online_and_local():
             board = page.locator("table.ludo-board").bounding_box()
             die = page.get_by_role("button", name="Roll die").bounding_box()
             assert abs(board["width"] - board["height"]) < 3
-            assert die["y"] >= board["y"] + board["height"]
+            assert die["y"] + die["height"] <= board["y"]
+            expect(page.locator('.seat-card[data-seat="red"]')).to_contain_text("Nova")
+            expect(page.locator('.seat-card[data-seat="yellow"]')).to_contain_text("Mika")
         roll.click()
+        expect(host.locator(".tumble")).to_be_visible()
         expect(guest.get_by_text("Red rolled", exact=False)).to_be_visible()
         host.reload()
         expect(host.get_by_text("Red rolled", exact=False)).to_be_visible()
@@ -40,4 +47,24 @@ def test_online_and_local():
                 break
         host.locator(".board-choice").first.click()
         expect(host.get_by_text("moved pawn", exact=False)).to_be_visible()
+        browser.close()
+
+
+def test_side_docks_on_phone():
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
+        for count in (3, 4):
+            page = browser.new_page(viewport={"width": 375, "height": 812})
+            page.goto(os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173"))
+            page.get_by_role("button", name=str(count), exact=True).click()
+            page.get_by_text("Pass and play").click()
+            expect(page.locator(".seat-card")).to_have_count(count)
+            board = page.locator(".board-frame").bounding_box()
+            green = page.locator(".seat-card[data-seat=green]").bounding_box()
+            assert green["x"] >= board["x"] + board["width"] - 1
+            if count == 4:
+                blue = page.locator(".seat-card[data-seat=blue]").bounding_box()
+                assert blue["x"] + blue["width"] <= board["x"] + 1
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            page.close()
         browser.close()

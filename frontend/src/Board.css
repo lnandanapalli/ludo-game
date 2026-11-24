@@ -31,3 +31,12 @@
 }
 .ludo-board .board-choice:hover { background: #ffffff40; }
 .ludo-board .board-choice { min-height: 0; box-shadow: inset 0 0 0 1px white; }
+
+.ludo-board button.board-choice, .ludo-board button.board-choice:hover { border: 0; background: transparent; box-shadow: none; }
+.pawn-icon[data-playable] { animation: pawn-pulse .78s ease-in-out infinite alternate; z-index: 1; }
+@keyframes pawn-pulse { from { scale: .92; } to { scale: 1.2; filter: drop-shadow(0 0 2px white) drop-shadow(0 0 2px currentColor); } }
+@media(prefers-reduced-motion: reduce) {
+  .arena .pawn-icon[data-playable] { animation: none; filter: drop-shadow(0 0 2px white); scale: 1.12; }
+  .arena .seat-card[data-active=true] .portrait { animation: none; outline: 3px solid var(--seat); }
+  .arena .dice-dock, .arena .tumble { transition: none; animation: none; }
+}

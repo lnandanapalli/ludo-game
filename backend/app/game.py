@@ -39,6 +39,10 @@ class Game:
 
     auto_move: dict[str, bool] = field(default_factory=dict)
 
+    profiles: dict = field(default_factory=dict)
+    roll_number: int = 0
+    roller: str | None = None
+
     @classmethod
     def new(cls, count):
         colors = ["red", "yellow"] if count == 2 else list(COLORS[:count])
@@ -62,6 +66,8 @@ class Game:
     def roll(self, die):
         if self.phase != "roll":
             raise ValueError("Roll unavailable.")
+        self.roll_number += 1
+        self.roller = self.current
         self.die = die
         self.sixes = self.sixes + 1 if die == 6 else 0
         self.message = f"{self.current.title()} rolled {die}."
@@ -116,7 +122,7 @@ class Game:
             for i, step in enumerate(pieces):
                 row, col = position(color, i, step)
                 pawns.append(dict(id=f"{color}-{i+1}", color=color, row=row, col=col, step=step))
-        return dict(current=self.current, phase=self.phase, die=self.die, message=self.message,
+        return dict(profiles=self.profiles, roll_number=self.roll_number, roller=self.roller, current=self.current, phase=self.phase, die=self.die, message=self.message,
                     colors=self.colors, pawns=pawns, legal=self.legal())
 
     def dump(self):

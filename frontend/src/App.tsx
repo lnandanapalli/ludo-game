@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Board from './Board'
 import BoardGrid from './BoardGrid'
-import { request, type Match, type Session } from './api'
+import { request, type Match, type Profile, type Session } from './api'
 import Die from './Die'
+import ProfilePicker from './ProfilePicker'
+import { defaultProfile, portraits } from './profiles'
 import './App.css'
 
 const storageKey = 'ludo-seat'
@@ -22,9 +24,20 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
   const [game, setGame] = useState<Match | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const latest = useRef<Match | null>(null)
+  const [rolling, setRolling] = useState(false)
+  const animation = useRef<number | undefined>(undefined)
   const path = '/rooms/' + session.room
   const accept = useCallback((next: Match) => {
-    setGame(old => !old || next.revision >= old.revision ? next : old)
+    const old = latest.current
+    if (old && next.revision <= old.revision) return
+    if (old && next.roll_number > old.roll_number) {
+      setRolling(true)
+      window.clearTimeout(animation.current)
+      animation.current = window.setTimeout(() => setRolling(false), 950)
+    }
+    latest.current = next
+    setGame(next)
   }, [])
   useEffect(() => {
     let active = true
@@ -40,7 +53,7 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
       }
     }
     void refresh()
-    return () => { active = false; clearTimeout(timer) }
+    return () => { active = false; clearTimeout(timer); clearTimeout(animation.current) }
   }, [accept, path, session.token])
 
   async function act(action: 'roll' | 'move', pawn?: number) {
@@ -54,37 +67,43 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
   }
 
   const ownTurn = game?.mode === 'local' || game?.seat === game?.current
-  const prompt = !game?.ready ? 'Waiting for players' : game.phase === 'won' ? game.message
-    : !ownTurn ? `Waiting for ${game.current}` : game.phase === 'move' ? 'Tap a highlighted pawn' : 'Tap the die to roll'
+  const active = rolling && game?.roller ? game.roller : game?.current
   return <main className="match">
     <header><Wordmark/><button className="quiet" onClick={leave}>Back to lobby</button></header>
     {error && <p role="alert">{error}</p>}
     {!game ? <p>Loading game…</p> : <>
-      <ul className="players" aria-label="Players and pawns home">{game.colors.map(color =>
-        <li key={color} data-seat={color} className={game.current === color ? 'active-seat' : ''}>
-          <strong>{color}</strong><small>{game.pawns.filter(p => p.color === color && p.step === 56).length}/4 home</small>
-        </li>)}</ul>
-      {game.mode === 'online' && <p>Your seat is <b>{game.seat}</b>. {game.joined}/{game.colors.length} joined.
-        {' '}Room <code>{game.room}</code></p>}
+      {!game.ready && <p>Room <code>{game.room}</code> · {game.joined}/{game.colors.length} players</p>}
       {!game.ready && <label>Invite link<input readOnly value={location.origin + location.pathname + '?room=' + game.room}
         onFocus={e => e.target.select()} /></label>}
-      <div className="board-frame"><BoardGrid pawns={game.pawns} moves={ownTurn && !busy
+      <div className="arena" data-count={game.colors.length}>
+      {game.colors.map(color => {
+        const profile = game.profiles[color] || defaultProfile(color)
+        return <div key={color} className="seat-card" data-seat={color} data-active={game.ready && active === color}>
+          <span className="portrait">{portraits[profile.avatar]}</span>
+          <strong>{profile.name.trim() || color}</strong>
+          <span className="home-dots" aria-label={game.pawns.filter(p => p.color === color && p.step === 56).length + ' home'}>
+            {game.pawns.filter(p => p.color === color).map(p => <i key={p.id} data-home={p.step === 56}/>)}</span>
+        </div>
+      })}
+      <div className="board-frame"><BoardGrid pawns={game.pawns} moves={ownTurn && !busy && !rolling
         ? new Map(game.legal.map(i => [game.current + '-' + (i + 1), () => act('move', i)]))
         : undefined} /></div>
-      <section className="turn-tray controls" data-seat={game.current} aria-label="Turn controls">
-        <div><small>{game.phase === 'won' ? 'Game over' : game.current + '’s turn'}</small>
-          <h2>{prompt}</h2><p aria-live="polite">{game.message}</p></div>
-        <button className="roll" aria-label="Roll die" title={game.die ? 'Last roll: ' + game.die : 'Roll die'}
-          disabled={!game.ready || !ownTurn || busy || game.phase !== 'roll'} onClick={() => act('roll')}>
-          <Die value={game.die} />
+      <div className="dice-dock controls" data-seat={active}>
+        <button className="roll" aria-label="Roll die" title="Roll die"
+          disabled={!game.ready || !ownTurn || busy || rolling || game.phase !== 'roll'} onClick={() => act('roll')}>
+          <span key={game.roll_number} className={rolling ? 'tumble' : 'rest'}><Die value={game.die} /></span>
         </button>
-      </section>
+      </div></div>
+      {game.phase === 'won' && <h2 className="victory">🏆 {game.profiles[game.current]?.name || game.current} wins!</h2>}
+      <span className="sr-only" aria-live="polite">{game.message}</span>
     </>}
   </main>
 }
 
 export default function App() {
   const [session, setSession] = useState(savedSeat)
+  const [profiles, setProfiles] = useState<Record<string, Profile>>({})
+  const [guestProfile, setGuestProfile] = useState(defaultProfile("guest"))
   const [preferences, setPreferences] = useState<Record<string, boolean>>({})
   const [guestAuto, setGuestAuto] = useState(true)
   const [mode, setMode] = useState<'local' | 'online'>('local')
@@ -99,8 +118,8 @@ export default function App() {
     setError('')
     try {
       const seat = mode === 'join'
-        ? await request<Session>('/rooms/' + encodeURIComponent(room.trim().toLowerCase()) + '/join', undefined, { auto_move: guestAuto })
-        : await request<Session>('/rooms', undefined, { mode, players, auto_move: Object.fromEntries(colors.map(c => [c, preferences[c] ?? true])) })
+        ? await request<Session>('/rooms/' + encodeURIComponent(room.trim().toLowerCase()) + '/join', undefined, { profile: guestProfile, auto_move: guestAuto })
+        : await request<Session>('/rooms', undefined, { mode, players, profiles, auto_move: Object.fromEntries(colors.map(c => [c, preferences[c] ?? true])) })
       localStorage.setItem(storageKey, JSON.stringify(seat))
       history.replaceState(null, '', location.pathname)
       setSession(seat)
@@ -120,6 +139,8 @@ export default function App() {
       </div>
       <fieldset><legend>Players</legend><div className="numbers">{[2,3,4].map(n =>
         <button key={n} aria-pressed={n === players} onClick={() => setPlayers(n)}>{n}</button>)}</div></fieldset>
+      {(mode === 'local' ? colors : ['red']).map(c => <ProfilePicker key={c} seat={c}
+        profile={profiles[c] || defaultProfile(c)} change={profile => setProfiles({...profiles, [c]: profile})}/>)}
       <fieldset><legend>Auto-move the only legal pawn</legend>
         {(mode === 'local' ? colors : ['red']).map(c => <label key={c} data-seat={c} className="preference">
           <span>{c}</span><input type="checkbox" checked={preferences[c] ?? true}
@@ -128,6 +149,7 @@ export default function App() {
     </section>
     <form className="panel join" onSubmit={e => { e.preventDefault(); void enter('join') }}><h2>Join a room</h2>
       <label>Room code<input value={room} placeholder="Enter code" onChange={e => setRoom(e.target.value)} required /></label>
+      <ProfilePicker seat="guest" profile={guestProfile} change={setGuestProfile}/>
       <label className="preference">Auto-move my only legal pawn<input type="checkbox" checked={guestAuto} onChange={e => setGuestAuto(e.target.checked)}/></label>
       <button disabled={busy || !room.trim()}>Join room</button>
     </form></div>

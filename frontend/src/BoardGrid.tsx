@@ -13,7 +13,7 @@ export default function BoardGrid({ pawns, moves }: { pawns: Pawn[]; moves?: Map
                 const choice = cellPawns.find(p => moves?.has(p.id))
                 return (
                   <td key={c}>
-                    <Cell row={r} col={c} pawns={cellPawns} />
+                    <Cell row={r} col={c} pawns={cellPawns} playable={moves} />
                     {choice && <button className="board-choice" aria-label={`Move ${choice.id}`}
                       onClick={moves?.get(choice.id)} />}
                   </td>

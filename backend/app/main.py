@@ -42,13 +42,20 @@ app.add_middleware(CORSMiddleware, allow_origins=[
 ], allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
 
 
+class Profile(BaseModel):
+    name: str = Field(default="", max_length=24)
+    avatar: Literal["fox", "panda", "tiger", "frog", "owl", "koala"] = "fox"
+
+
 class Setup(BaseModel):
+    profiles: dict[str, Profile] = Field(default_factory=dict)
     players: int = Field(ge=2, le=4)
     mode: Literal["local", "online"]
     auto_move: dict[str, bool] = Field(default_factory=dict)
 
 
 class JoinSetup(BaseModel):
+    profile: Profile | None = None
     auto_move: bool = False
 
 
@@ -103,6 +110,7 @@ def create(setup: Setup):
     token = secrets.token_urlsafe(32)
     game = Game.new(setup.players)
     eligible = game.colors if setup.mode == "local" else game.colors[:1]
+    game.profiles = {c: setup.profiles[c].model_dump() for c in eligible if c in setup.profiles}
     game.auto_move = {c: setup.auto_move.get(c, False) for c in eligible}
     with database(True) as db:
         db.execute("INSERT INTO rooms(id,mode,seats,state) VALUES(?,?,?,?)",
@@ -117,6 +125,8 @@ def join(room: str, setup: JoinSetup | None = None):
         row, game, seats = load(db, room)
         if row["mode"] != "online" or len(seats) >= len(game.colors):
             raise HTTPException(409, "Room is full or private to one device.")
+        if setup and setup.profile:
+            game.profiles[game.colors[len(seats)]] = setup.profile.model_dump()
         game.auto_move[game.colors[len(seats)]] = bool(setup and setup.auto_move)
         seats.append(digest(token))
         db.execute("UPDATE rooms SET seats=?, state=?, revision=revision+1 WHERE id=?",

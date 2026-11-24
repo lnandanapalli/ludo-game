@@ -56,3 +56,39 @@ input:not([type=checkbox]) { display: block; width: 100%; padding: .75rem; margi
 .roll:enabled:active { transform: translateY(2px) rotate(-6deg); }
 [role=alert] { color: #ffb4ab; }
 @media(max-width: 620px) { .setup-layout { grid-template-columns: 1fr; } .lobby { margin-top: 0; } .match { width: min(96vw, 610px); } }
+
+.profile-picker { margin: 1rem 0; }
+.profile-picker legend { color: var(--seat, #d6e2db); text-transform: capitalize; }
+.portraits { display: flex; gap: 4px; flex-wrap: wrap; }
+.portraits button { padding: 4px; width: 39px; font-size: 1.45rem; }
+.match { width: min(96vw, 84dvh, 740px); }
+.arena { --rail: clamp(43px,8vw,76px); position: relative; padding: 84px var(--rail); }
+.arena[data-count="2"] { padding-inline: 0; }
+.arena .board-frame { position: relative; }
+.seat-card,.dice-dock { position: absolute; left: var(--x); top: var(--y); transform: translate(-50%,-50%); }
+.arena [data-seat=red] { --x: 50%; --y: 42px; }
+.arena [data-seat=yellow] { --x: 50%; --y: calc(100% - 42px); }
+.arena [data-seat=green] { --x: calc(100% - var(--rail)/2); --y: 50%; }
+.arena [data-seat=blue] { --x: calc(var(--rail)/2); --y: 50%; }
+.seat-card { width: 72px; display: grid; justify-items: center; gap: 2px; }
+.seat-card:is([data-seat=red],[data-seat=yellow]) { margin-left: -36px; }
+.seat-card:is([data-seat=blue],[data-seat=green]) { width: var(--rail); margin-top: -36px; }
+.seat-card strong { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .8rem; }
+.portrait { display: grid; place-items: center; width: 39px; aspect-ratio: 1; border-radius: 50%; font-size: 25px; background: #38464c; border: 2px solid var(--seat); }
+.seat-card[data-active=true] .portrait { animation: beacon 1.15s ease-in-out infinite alternate; }
+.home-dots { display: flex; gap: 3px; }
+.home-dots i { width: 5px; height: 5px; border-radius: 50%; background: #788687; }
+.home-dots [data-home=true] { background: var(--seat); }
+.dice-dock { z-index: 2; transition: top .38s ease, left .38s ease, margin .38s ease; }
+.dice-dock:is([data-seat=red],[data-seat=yellow]) { margin-left: 28px; }
+.dice-dock:is([data-seat=blue],[data-seat=green]) { margin-top: 27px; }
+.dice-dock .roll { min-width: 42px; min-height: 44px; padding: 3px; }
+.dice-dock .roll:disabled { opacity: 1; }
+.dice-dock .die-face { width: clamp(35px,6vw,48px); height: auto; aspect-ratio: 1; padding: 7px; }
+.tumble,.rest { display: block; }
+.tumble { animation: tumble .62s cubic-bezier(.25,.6,.38,1) both; }
+@keyframes tumble { 0% { transform: rotate(0); } 30% { transform: translateY(-10px) rotate(120deg) rotateX(58deg); } 70% { transform: rotate(282deg) rotateY(52deg); } 100% { transform: rotate(360deg); } }
+@keyframes beacon { to { box-shadow: 0 0 0 4px color-mix(in srgb,var(--seat) 30%,transparent), 0 0 16px var(--seat); } }
+.victory { text-align: center; }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+@media(max-width:620px) { .match { width: 98vw; } .match header { padding-inline: 8px; } .arena { --rail: 43px; } }

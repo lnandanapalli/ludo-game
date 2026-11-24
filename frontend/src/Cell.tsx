@@ -5,10 +5,11 @@ import { PAWN_COLOR_HEX, type Pawn } from './types'
 interface CellProps {
   row: number
   col: number
+  playable?: Map<string, () => void>
   pawns: Pawn[]
 }
 
-function Cell({ row, col, pawns }: CellProps) {
+function Cell({ row, col, pawns, playable }: CellProps) {
   const { type, color } = getCellInfo(row, col)
 
   const groups = new Map<Pawn['color'], Pawn[]>()
@@ -34,6 +35,7 @@ function Cell({ row, col, pawns }: CellProps) {
                   <span
                     key={pawn.id}
                     className="pawn-icon"
+                    data-playable={playable?.has(pawn.id) || undefined}
                     style={{ transform: `translate(${offset * 19}%, ${offset * 5}%)` }}
                     role="img"
                     aria-label={`${groupColor} pawn`}
