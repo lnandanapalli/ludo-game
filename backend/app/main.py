@@ -45,6 +45,11 @@ app.add_middleware(CORSMiddleware, allow_origins=[
 class Setup(BaseModel):
     players: int = Field(ge=2, le=4)
     mode: Literal["local", "online"]
+    auto_move: dict[str, bool] = Field(default_factory=dict)
+
+
+class JoinSetup(BaseModel):
+    auto_move: bool = False
 
 
 class Command(BaseModel):
@@ -97,6 +102,8 @@ def create(setup: Setup):
     room = secrets.token_hex(5)
     token = secrets.token_urlsafe(32)
     game = Game.new(setup.players)
+    eligible = game.colors if setup.mode == "local" else game.colors[:1]
+    game.auto_move = {c: setup.auto_move.get(c, False) for c in eligible}
     with database(True) as db:
         db.execute("INSERT INTO rooms(id,mode,seats,state) VALUES(?,?,?,?)",
                    (room, setup.mode, json.dumps([digest(token)]), json.dumps(game.dump())))
@@ -104,14 +111,16 @@ def create(setup: Setup):
 
 
 @app.post("/rooms/{room}/join", status_code=201)
-def join(room: str):
+def join(room: str, setup: JoinSetup | None = None):
     token = secrets.token_urlsafe(32)
     with database(True) as db:
         row, game, seats = load(db, room)
         if row["mode"] != "online" or len(seats) >= len(game.colors):
             raise HTTPException(409, "Room is full or private to one device.")
+        game.auto_move[game.colors[len(seats)]] = bool(setup and setup.auto_move)
         seats.append(digest(token))
-        db.execute("UPDATE rooms SET seats=?, revision=revision+1 WHERE id=?", (json.dumps(seats), room))
+        db.execute("UPDATE rooms SET seats=?, state=?, revision=revision+1 WHERE id=?",
+                   (json.dumps(seats), json.dumps(game.dump()), room))
     return {"room": room, "token": token}
 
 

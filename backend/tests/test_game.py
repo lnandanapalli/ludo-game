@@ -71,3 +71,25 @@ def test_passing_opposing_stack_leaves_it_in_place():
     g.move(0)
     assert g.pieces["red"][0] == 3
     assert g.pieces["yellow"][:2] == [28, 28]
+
+
+@pytest.mark.parametrize("enabled,expected", [(True, 4), (False, 1)])
+def test_only_legal_pawn_auto_move(enabled, expected):
+    game = Game.new(2)
+    game.auto_move["red"] = enabled
+    game.pieces["red"][0] = 1
+    game.roll(3)
+    assert game.pieces["red"][0] == expected
+    assert (game.phase == "move") != enabled
+
+
+def test_auto_move_waits_for_choice_and_respects_other_player():
+    game = Game.new(2)
+    game.auto_move["red"] = True
+    game.roll(6)
+    assert game.legal() == [0, 1, 2, 3]
+    game.move(0)
+    game.roll(2)
+    game.pieces["yellow"][2] = 1
+    game.roll(1)
+    assert game.legal() == [2]

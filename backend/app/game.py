@@ -1,5 +1,5 @@
 """Pure Ludo rules. Progress -1 is the yard, 0 is start, 56 is home."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 COLORS = ("red", "green", "yellow", "blue")
@@ -37,6 +37,8 @@ class Game:
     phase: Literal["roll", "move", "won"] = "roll"
     message: str = "Red starts."
 
+    auto_move: dict[str, bool] = field(default_factory=dict)
+
     @classmethod
     def new(cls, count):
         colors = ["red", "yellow"] if count == 2 else list(COLORS[:count])
@@ -73,6 +75,10 @@ class Game:
                 self.phase = "roll"
             else:
                 self.pass_turn()
+        elif self.auto_move.get(self.current) and len(choices := self.legal()) == 1:
+            roll_message = self.message
+            self.move(choices[0])
+            self.message = f"{roll_message} {self.message}"
 
     def move(self, pawn):
         if pawn not in self.legal():
