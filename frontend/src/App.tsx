@@ -3,6 +3,8 @@ import Board from './Board'
 import BoardGrid from './BoardGrid'
 import { request, type Match, type Profile, type Session } from './api'
 import Die from './Die'
+import SoundToggle from './SoundToggle'
+import { playChanges } from './sound'
 import ProfilePicker from './ProfilePicker'
 import { defaultProfile, portraits } from './profiles'
 import './App.css'
@@ -31,6 +33,7 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
   const accept = useCallback((next: Match) => {
     const old = latest.current
     if (old && next.revision <= old.revision) return
+    if (old) playChanges(old, next)
     if (old && next.roll_number > old.roll_number) {
       setRolling(true)
       window.clearTimeout(animation.current)
@@ -69,7 +72,7 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
   const ownTurn = game?.mode === 'local' || game?.seat === game?.current
   const active = rolling && game?.roller ? game.roller : game?.current
   return <main className="match">
-    <header><Wordmark/><button className="quiet" onClick={leave}>Back to lobby</button></header>
+    <header><Wordmark/><SoundToggle/><button className="quiet" onClick={leave}>Back to lobby</button></header>
     {error && <p role="alert">{error}</p>}
     {!game ? <p>Loading game…</p> : <>
       {!game.ready && <p>Room <code>{game.room}</code> · {game.joined}/{game.colors.length} players</p>}
@@ -130,7 +133,7 @@ export default function App() {
   if (session && !lobby) return <Play key={session.room} session={session} leave={() => setLobby(true)} />
   if (demo) return <main><button onClick={() => setDemo(false)}>Back to lobby</button><Board /></main>
   const colors = players === 2 ? ['red', 'yellow'] : ['red', 'green', 'yellow', 'blue'].slice(0, players)
-  return <main className="lobby"><header><Wordmark/><button className="quiet" onClick={() => setDemo(true)}>Pawn demos</button></header>
+  return <main className="lobby"><header><Wordmark/><SoundToggle/><button className="quiet" onClick={() => setDemo(true)}>Pawn demos</button></header>
     {session && <button onClick={() => setLobby(false)}>Resume game</button>}
     <div className="setup-layout"><section className="panel"><h2>Start a game</h2>
       <div className="segmented" aria-label="Game mode">
