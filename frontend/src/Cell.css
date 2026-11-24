@@ -44,11 +44,27 @@
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: center;
+  align-content: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 1px;
+  overflow: hidden;
   pointer-events: none;
+}
+
+.pawn-stack {
+  width: 50%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+.pawn-layer[data-groups="1"] .pawn-stack {
+  width: 100%;
+}
+
+.pawn-stack:has(.pawn-icon:nth-child(2)) .pawn-icon {
+  width: 62%;
+  height: 72%;
 }
 
 .pawn-icon {
@@ -56,6 +72,7 @@
   --shade: color-mix(in srgb, currentColor 58%, #181320);
   --rim: color-mix(in srgb, currentColor 38%, #181320);
   position: relative;
+  grid-area: 1 / 1;
   width: 78%;
   height: 88%;
   background: radial-gradient(ellipse 43% 19% at 50% 77%,
@@ -82,9 +99,4 @@
   border-radius: 50%;
   background: radial-gradient(ellipse at 33% 23%, #fffffff0, transparent 22%),
     radial-gradient(circle at 36% 30%, var(--lit), currentColor 46%, var(--shade) 73%, var(--rim) 95%);
-}
-
-.pawn-layer--multi .pawn-icon {
-  width: 46%;
-  height: 46%;
 }

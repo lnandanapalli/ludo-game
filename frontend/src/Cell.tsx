@@ -11,6 +11,13 @@ interface CellProps {
 function Cell({ row, col, pawns }: CellProps) {
   const { type, color } = getCellInfo(row, col)
 
+  const groups = new Map<Pawn['color'], Pawn[]>()
+  for (const pawn of pawns) {
+    const group = groups.get(pawn.color)
+    if (group) group.push(pawn)
+    else groups.set(pawn.color, [pawn])
+  }
+
   return (
     <div
       className={`ludo-board-cell cell--${type}`}
@@ -18,15 +25,22 @@ function Cell({ row, col, pawns }: CellProps) {
       id={`r${row}c${col}`}
     >
       {pawns.length > 0 && (
-        <div className={`pawn-layer${pawns.length > 1 ? ' pawn-layer--multi' : ''}`}>
-          {pawns.map(p => (
-            <span
-              key={p.id}
-              className="pawn-icon"
-              style={{ color: PAWN_COLOR_HEX[p.color] }}
-              role="img"
-              aria-label={`${p.color} pawn`}
-            />
+        <div className="pawn-layer" data-groups={groups.size}>
+          {Array.from(groups, ([groupColor, group]) => (
+            <div className="pawn-stack" key={groupColor} style={{ color: PAWN_COLOR_HEX[groupColor] }}>
+              {group.map((pawn, index) => {
+                const offset = index - (group.length - 1) / 2
+                return (
+                  <span
+                    key={pawn.id}
+                    className="pawn-icon"
+                    style={{ transform: `translate(${offset * 19}%, ${offset * 5}%)` }}
+                    role="img"
+                    aria-label={`${groupColor} pawn`}
+                  />
+                )
+              })}
+            </div>
           ))}
         </div>
       )}
