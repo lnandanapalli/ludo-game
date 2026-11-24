@@ -11,9 +11,10 @@ export default function SoundToggle() {
       window.removeEventListener('keydown', unlockSound)
     }
   }, [])
-  return <button className="quiet" type="button" aria-label="Sound effects" aria-pressed={enabled}
-    title={enabled ? 'Mute sound effects' : 'Enable sound effects'}
-    onClick={() => { setSound(!enabled); setEnabled(!enabled) }}>
-    <span aria-hidden="true">{enabled ? '🔊' : '🔇'}</span>
-  </button>
+  return <label className="preference">Sound effects
+    <input type="checkbox" checked={enabled} onChange={e => {
+      setSound(e.target.checked)
+      setEnabled(e.target.checked)
+    }}/>
+  </label>
 }
