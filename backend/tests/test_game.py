@@ -30,10 +30,10 @@ def test_entry_and_three_sixes():
 def test_capture_and_safe(landing, captured):
     g = Game.new(2)
     g.pieces["red"][0] = landing - 1
-    g.pieces["yellow"][:2] = [(landing - 26) % 52] * 2
+    g.pieces["yellow"][0] = (landing - 26) % 52
     g.roll(1)
     g.move(0)
-    assert (g.pieces["yellow"][:2] == [-1, -1]) == captured
+    assert (g.pieces["yellow"][0] == -1) == captured
     assert (g.current == "red") == captured
 
 
@@ -61,3 +61,22 @@ def test_full_match(count):
         if g.legal():
             g.move(rng.choice(g.legal()))
     assert g.phase == "won"
+
+@pytest.mark.parametrize("die", [2, 3])
+def test_opponent_pair_blocks_landing_and_passing(die):
+    g = Game.new(2)
+    g.pieces["red"][:2] = [0, 10]
+    g.pieces["yellow"][:2] = [28, 28]  # Red progress 2
+    g.roll(die)
+    assert g.legal() == [1]
+    with pytest.raises(ValueError):
+        g.move(0)
+
+
+def test_pair_on_safe_square_can_be_shared():
+    g = Game.new(2)
+    g.pieces["red"][0] = 7
+    g.pieces["yellow"][:2] = [34, 34]  # Red progress 8, a star
+    g.roll(1)
+    g.move(0)
+    assert g.pieces["yellow"][:2] == [34, 34]

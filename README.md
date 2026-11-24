@@ -28,7 +28,7 @@ Open http://localhost:5173. Choose **Pass and play** to share a device. For **Cr
 
 - Roll six to bring a pawn out, or move a pawn already in play. Each color has its own clockwise route and home lane.
 - Roll again after a six, capture, or exact finish. A third consecutive six forfeits the roll. If there is no legal move, the turn passes (a six still grants a reroll).
-- Starts and starred squares are safe. Landing on another ordinary track square sends all opposing pawns there back to their yards. Stacks do not block passage.
+- Starts and starred squares are safe. Landing on a lone opposing pawn on an ordinary track square sends it back to its yard. Two or more pawns of one color there block opponents from landing on or passing that square. Players may freely share starts and stars.
 - Finishing requires an exact roll. First to finish all four wins. Click a highlighted square or use the numbered pawn controls; the controls also let you pick a specific pawn in a stack.
 
 ## Separate frontend and backend hosts
