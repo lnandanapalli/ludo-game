@@ -49,27 +49,8 @@ class Game:
     def legal(self):
         if self.phase != "move":
             return []
-        blocks = set()
-        for color, pieces in self.pieces.items():
-            if color == self.current:
-                continue
-            for step in set(pieces):
-                if 0 <= step <= 50 and pieces.count(step) >= 2:
-                    square = position(color, 0, step)
-                    if square not in SAFE:
-                        blocks.add(square)
-
-        choices = []
-        for pawn, step in enumerate(self.pieces[self.current]):
-            if step == -1:
-                if self.die == 6:
-                    choices.append(pawn)
-                continue
-            end = step + self.die
-            if end <= 56 and all(position(self.current, pawn, n) not in blocks
-                                 for n in range(step + 1, end + 1)):
-                choices.append(pawn)
-        return choices
+        return [i for i, step in enumerate(self.pieces[self.current])
+                if (step == -1 and self.die == 6) or (0 <= step <= 56 - self.die)]
 
     def pass_turn(self):
         self.turn = (self.turn + 1) % len(self.colors)
