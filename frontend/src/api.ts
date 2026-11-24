@@ -17,7 +17,7 @@ export interface Match {
   pawns: (Pawn & { step: number })[]
 }
 
-const base = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 
 export async function request<T>(path: string, token?: string, body?: object): Promise<T> {
   const headers = new Headers()

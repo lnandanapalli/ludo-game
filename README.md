@@ -22,7 +22,7 @@ npm ci
 npm run dev
 ```
 
-Open http://localhost:5173. Choose **Pass and play** to share a device. For **Create online room**, choose the seat count first, then share the invite link or room code. Each friend joins from a separate browser profile or device. The match starts when all seats are filled. Refreshing restores your latest seat in that browser. Starting or joining another match replaces the saved seat. For testing on other devices, configure reachable API/frontend addresses and CORS as described below.
+Open http://localhost:5173. Choose **Pass and play** to share a device. For **Create online room**, choose the seat count first, then share the invite link or room code. Each friend joins from a separate browser profile or device. The match starts when all seats are filled. Refreshing restores your latest seat in that browser. Starting or joining another match replaces the saved seat. In Codespaces, run both servers in the same Codespace, leave VITE_API_URL unset, and open forwarded port 5173. Visit /api/health on that frontend URL to check the connection.
 
 ## Rules used here
 
@@ -35,7 +35,7 @@ Open http://localhost:5173. Choose **Pass and play** to share a device. For **Cr
 
 | Setting | Service | Purpose |
 | --- | --- | --- |
-| VITE_API_URL | Frontend, **at build time** | Public HTTPS API origin. Defaults to http://localhost:8000. |
+| VITE_API_URL | Frontend, **at build time** | Public HTTPS API origin for separate deployments. Defaults to /api on the frontend origin; Vite forwards this to FastAPI on port 8000. |
 | LUDO_ORIGINS | Backend, at runtime | Comma-separated list of exact frontend origins, e.g. https://play.example.com. |
 | LUDO_DB | Backend, at runtime | SQLite file path. Defaults to ludo.sqlite3 in the working directory. |
 
