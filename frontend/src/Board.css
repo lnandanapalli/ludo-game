@@ -18,3 +18,15 @@
   width: min(90vw, 600px);
   margin: 1rem auto;
 }
+
+.ludo-board td { position: relative; }
+.ludo-board .board-choice {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 2px solid #202a48;
+  border-radius: 4px;
+  background: transparent;
+}
+.ludo-board .board-choice:hover { background: #ffffff40; }

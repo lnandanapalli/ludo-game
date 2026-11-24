@@ -26,3 +26,25 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: pip install -r backend/requirements-dev.txt 'playwright>=1.50,<2'
+      - run: python -m playwright install --with-deps chromium
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - name: Run browser integration test
+        run: |
+          (cd backend && uvicorn app.main:app --port 8000) &
+          (cd frontend && npm run preview -- --port 5173 --strictPort) &
+          for url in http://localhost:8000/health http://localhost:5173; do
+            curl --fail --retry 15 --retry-connrefused --retry-delay 1 "$url" >/dev/null
+          done
+          python -m pytest tests/

@@ -60,7 +60,9 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
         {' '}Room <code>{game.room}</code></p>}
       {!game.ready && <label>Invite link<input readOnly value={location.origin + location.pathname + '?room=' + game.room}
         onFocus={e => e.target.select()} /></label>}
-      <BoardGrid pawns={game.pawns} />
+      <BoardGrid pawns={game.pawns} moves={ownTurn && !busy
+        ? new Map(game.legal.map(i => [game.current + '-' + (i + 1), () => act('move', i)]))
+        : undefined} />
       <section className="controls" aria-label="Turn controls">
         <span className="die" aria-label={'Die: ' + game.die}>{dice[game.die]}</span>
         {game.ready && game.phase === 'roll' && <button disabled={!ownTurn || busy} onClick={() => act('roll')}>Roll die</button>}
