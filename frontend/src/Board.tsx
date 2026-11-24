@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import './Board.css'
-import Cell from './Cell'
+import BoardGrid from './BoardGrid'
 import type { Pawn } from './types'
 
 // Starting positions match the yard-pawn slots
@@ -38,8 +38,6 @@ const TEST_PATH = [
 ]
 
 function Board() {
-  const rows = 15
-  const cols = 15
   const [pawns, setPawns] = useState<Pawn[]>(INITIAL_PAWNS)
 
   const timers = useRef<number[]>([])
@@ -69,22 +67,7 @@ function Board() {
 
   return (
     <div>
-      <table className="ludo-board">
-        <tbody>
-          {Array.from({ length: rows }).map((_, r) => (
-            <tr key={r}>
-              {Array.from({ length: cols }).map((_, c) => {
-                const cellPawns = pawns.filter(p => p.row === r && p.col === c)
-                return (
-                  <td key={c}>
-                    <Cell row={r} col={c} pawns={cellPawns} />
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <BoardGrid pawns={pawns} />
 
       <div className="demo-buttons">
         <button onClick={testMove}>Test move (red pawn)</button>

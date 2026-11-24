@@ -100,3 +100,13 @@
   background: radial-gradient(ellipse at 33% 23%, #fffffff0, transparent 22%),
     radial-gradient(circle at 36% 30%, var(--lit), currentColor 46%, var(--shade) 73%, var(--rim) 95%);
 }
+
+.cell--safe { background: #fff7d6; }
+.cell--safe::before {
+  content: "☆";
+  color: #846619;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-size: min(4vw, 26px);
+}
