@@ -4,6 +4,8 @@ Play on one device or invite friends to a private room. Every match has 2–4 se
 
 ## Run locally
 
+Create a Supabase project and run [the room schema](supabase/migrations/202611240001_rooms.sql) in its SQL Editor. In **Connect**, copy the PostgreSQL session pooler URI, supply the URL-encoded database password, and enable TLS with `sslmode=require`. Store the resulting URI as a backend `DATABASE_URL` secret (for example in Codespaces secrets or Azure backend App Service settings). A local Postgres database with the same schema also works.
+
 Use Python 3.12 and Node.js 24. Start the API from the repository root:
 
 ```sh
@@ -37,10 +39,14 @@ Open http://localhost:5173. Choose **Pass and play** to share a device. For **Cr
 | --- | --- | --- |
 | VITE_API_URL | Frontend, **at build time** | Public HTTPS API origin for separate deployments. Defaults to /api on the frontend origin; Vite forwards this to FastAPI on port 8000. |
 | LUDO_ORIGINS | Backend, at runtime | Comma-separated list of exact frontend origins, e.g. https://play.example.com. |
-| LUDO_DB | Backend, at runtime | SQLite file path. Defaults to ludo.sqlite3 in the working directory. |
+| DATABASE_URL | Backend, at runtime | Supabase Postgres connection URI. Required. |
 
-Serve the frontend's built `dist/` as static files. Run the API with `uvicorn app.main:app --host 0.0.0.0 --port 8000`. For App Service, configure the container target port and use one backend instance with a durable writable volume that supports SQLite locking. Create the database directory before starting the API. Container-local ephemeral storage loses rooms on replacement. For a multi-instance backend use a shared database service. Online clients poll for changes. Health check: `GET /health`. API docs: `/docs`.
+Serve the frontend's built `dist/` as static files. Run the API with `uvicorn app.main:app --host 0.0.0.0 --port 8000`. For App Service, configure the container target port. All backend instances use the same Postgres database. Online clients poll for changes. Health check: `GET /health`. API docs: `/docs`.
 
 ## Tests
 
-Run `python -m pytest` inside backend with the development requirements installed. Run `npm run lint && npm run build` inside frontend. The browser suite in `tests/` uses Python Playwright and pytest against both running services on their default local ports. Install Chromium with `python -m playwright install chromium`, then run `python -m pytest tests/` from the repo root. GitHub Actions runs these checks on every push and pull request.
+Use a dedicated test Postgres database with the room schema applied as DATABASE_URL. Run `python -m pytest` inside backend with the development requirements installed. Run `npm run lint && npm run build` inside frontend. The browser suite in `tests/` uses Python Playwright and pytest against both running services on their default local ports. Install Chromium with `python -m playwright install chromium`, then run `python -m pytest tests/` from the repo root. GitHub Actions runs these checks on every push and pull request.
+
+## Existing SQLite matches
+
+Stop writes to the old backend, keep a copy of its SQLite file, and apply the Postgres schema above. From `backend/`, with the destination DATABASE_URL set, run `python import_sqlite.py /path/to/ludo.sqlite3` before starting the new backend. The import preserves room codes, seat credentials and turn revisions. Identical rooms are skipped; conflicting rooms roll back the import.

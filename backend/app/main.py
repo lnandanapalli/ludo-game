@@ -1,42 +1,20 @@
 """HTTP API for local matches and invite-only online rooms."""
 import hashlib
-import json
 import os
 import secrets
-import sqlite3
-from contextlib import asynccontextmanager, contextmanager
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from psycopg.types.json import Jsonb
+
+from .db import database
 from .game import Game
 
 
-@contextmanager
-def database(write=False):
-    db = sqlite3.connect(os.environ.get("LUDO_DB", "ludo.sqlite3"), timeout=10)
-    db.row_factory = sqlite3.Row
-    try:
-        if write:
-            db.execute("BEGIN IMMEDIATE")
-        yield db
-        db.commit()
-    finally:
-        db.close()
-
-
-@asynccontextmanager
-async def lifespan(_app):
-    with database() as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS rooms (
-            id TEXT PRIMARY KEY, mode TEXT NOT NULL, seats TEXT NOT NULL,
-            state TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)""")
-    yield
-
-
-app = FastAPI(title="Ludo", lifespan=lifespan)
+app = FastAPI(title="Ludo")
 app.add_middleware(CORSMiddleware, allow_origins=[
     origin.strip() for origin in os.getenv("LUDO_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 ], allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
@@ -75,11 +53,12 @@ def credential(authorization: Annotated[str, Header()] = ""):
     return digest(authorization[7:])
 
 
-def load(db, room):
-    row = db.execute("SELECT * FROM rooms WHERE id=?", (room,)).fetchone()
+def load(db, room, *, lock=False):
+    query = "SELECT * FROM ludo.rooms WHERE id=%s"
+    row = db.execute(query + (" FOR UPDATE" if lock else ""), (room,)).fetchone()
     if row is None:
         raise HTTPException(404, "Room not found.")
-    return row, Game(**json.loads(row["state"])), json.loads(row["seats"])
+    return row, Game(**row["state"]), row["seats"]
 
 
 def snapshot(row, game, seats, key):
@@ -100,7 +79,7 @@ async def no_cache(request, call_next):
 @app.get("/health")
 def health():
     with database() as db:
-        db.execute("SELECT revision FROM rooms LIMIT 1")
+        db.execute("SELECT revision FROM ludo.rooms LIMIT 1")
     return {"status": "ok"}
 
 
@@ -112,25 +91,25 @@ def create(setup: Setup):
     eligible = game.colors if setup.mode == "local" else game.colors[:1]
     game.profiles = {c: setup.profiles[c].model_dump() for c in eligible if c in setup.profiles}
     game.auto_move = {c: setup.auto_move.get(c, False) for c in eligible}
-    with database(True) as db:
-        db.execute("INSERT INTO rooms(id,mode,seats,state) VALUES(?,?,?,?)",
-                   (room, setup.mode, json.dumps([digest(token)]), json.dumps(game.dump())))
+    with database() as db:
+        db.execute("INSERT INTO ludo.rooms(id,mode,seats,state) VALUES(%s,%s,%s,%s)",
+                   (room, setup.mode, Jsonb([digest(token)]), Jsonb(game.dump())))
     return {"room": room, "token": token}
 
 
 @app.post("/rooms/{room}/join", status_code=201)
 def join(room: str, setup: JoinSetup | None = None):
     token = secrets.token_urlsafe(32)
-    with database(True) as db:
-        row, game, seats = load(db, room)
+    with database() as db:
+        row, game, seats = load(db, room, lock=True)
         if row["mode"] != "online" or len(seats) >= len(game.colors):
             raise HTTPException(409, "Room is full or private to one device.")
         if setup and setup.profile:
             game.profiles[game.colors[len(seats)]] = setup.profile.model_dump()
         game.auto_move[game.colors[len(seats)]] = bool(setup and setup.auto_move)
         seats.append(digest(token))
-        db.execute("UPDATE rooms SET seats=?, state=?, revision=revision+1 WHERE id=?",
-                   (json.dumps(seats), json.dumps(game.dump()), room))
+        db.execute("UPDATE ludo.rooms SET seats=%s, state=%s, revision=revision+1 WHERE id=%s",
+                   (Jsonb(seats), Jsonb(game.dump()), room))
     return {"room": room, "token": token}
 
 
@@ -142,8 +121,8 @@ def read(room: str, key: Annotated[str, Depends(credential)]):
 
 @app.post("/rooms/{room}/actions")
 def act(room: str, command: Command, key: Annotated[str, Depends(credential)]):
-    with database(True) as db:
-        row, game, seats = load(db, room)
+    with database() as db:
+        row, game, seats = load(db, room, lock=True)
         state = snapshot(row, game, seats, key)
         if command.revision != row["revision"]:
             raise HTTPException(409, "Board changed. Try again.")
@@ -158,5 +137,5 @@ def act(room: str, command: Command, key: Annotated[str, Depends(credential)]):
                 game.move(command.pawn)
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
-        db.execute("UPDATE rooms SET state=?, revision=revision+1 WHERE id=?", (json.dumps(game.dump()), room))
+        db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+1 WHERE id=%s", (Jsonb(game.dump()), room))
         return snapshot(*load(db, room), key)

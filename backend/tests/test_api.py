@@ -7,8 +7,7 @@ from app.main import app
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("LUDO_DB", str(tmp_path / "game.sqlite3"))
+def client():
     with TestClient(app) as client:
         yield client
 

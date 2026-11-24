@@ -2,6 +2,16 @@ name: Ludo CI
 on: [push, pull_request]
 jobs:
   backend:
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://postgres:ci@localhost:5432/postgres
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -12,6 +22,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements-dev.txt
+      - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../supabase/migrations/202611240001_rooms.sql
       - run: python -m pytest
   frontend:
     runs-on: ubuntu-latest
@@ -27,6 +38,16 @@ jobs:
       - run: npm run lint
       - run: npm run build
   browser:
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://postgres:ci@localhost:5432/postgres
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +61,7 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - run: npm ci && npm run build
         working-directory: frontend
+      - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/202611240001_rooms.sql
       - name: Run browser integration test
         run: |
           (cd backend && uvicorn app.main:app --port 8000) &
