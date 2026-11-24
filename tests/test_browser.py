@@ -68,3 +68,18 @@ def test_side_docks_on_phone():
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
             page.close()
         browser.close()
+
+def test_two_player_match_fits_resized_viewport():
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
+        page = browser.new_page()
+        page.goto(os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173"))
+        page.get_by_text("Pass and play").click()
+        expect(page.locator(".seat-card")).to_have_count(2)
+        for width, height in [(1440, 800), (1280, 640), (390, 660), (844, 390)]:
+            page.set_viewport_size({"width": width, "height": height})
+            assert page.evaluate("document.documentElement.scrollHeight <= innerHeight")
+            for element in page.locator(".board-frame, .seat-card, .roll").all():
+                box = element.bounding_box()
+                assert 0 <= box["y"] and box["y"] + box["height"] <= height
+        browser.close()

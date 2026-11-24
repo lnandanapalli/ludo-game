@@ -75,7 +75,7 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
       {!game.ready && <p>Room <code>{game.room}</code> · {game.joined}/{game.colors.length} players</p>}
       {!game.ready && <label>Invite link<input readOnly value={location.origin + location.pathname + '?room=' + game.room}
         onFocus={e => e.target.select()} /></label>}
-      <div className="arena" data-count={game.colors.length}>
+      <div className="play-space"><div className="arena" data-count={game.colors.length}>
       {game.colors.map(color => {
         const profile = game.profiles[color] || defaultProfile(color)
         return <div key={color} className="seat-card" data-seat={color} data-active={game.ready && active === color}>
@@ -93,7 +93,7 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
           disabled={!game.ready || !ownTurn || busy || rolling || game.phase !== 'roll'} onClick={() => act('roll')}>
           <span key={game.roll_number} className={rolling ? 'tumble' : 'rest'}><Die value={game.die} /></span>
         </button>
-      </div></div>
+      </div></div></div>
       {game.phase === 'won' && <h2 className="victory">🏆 {game.profiles[game.current]?.name || game.current} wins!</h2>}
       <span className="sr-only" aria-live="polite">{game.message}</span>
     </>}
