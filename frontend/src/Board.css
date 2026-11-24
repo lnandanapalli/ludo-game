@@ -9,3 +9,12 @@
 .ludo-board td {
   padding: 0;
 }
+
+.demo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  width: min(90vw, 600px);
+  margin: 1rem auto;
+}

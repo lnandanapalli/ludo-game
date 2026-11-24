@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import './Board.css'
 import Cell from './Cell'
 import type { Pawn } from './types'
@@ -42,20 +42,29 @@ function Board() {
   const cols = 15
   const [pawns, setPawns] = useState<Pawn[]>(INITIAL_PAWNS)
 
-  function movePawn(
-    pawnId: string,
-    path: Array<{ row: number; col: number }>,
-    stepDelay = 200,
-    onDone?: () => void
-  ) {
-    path.forEach((pos, i) => {
-      setTimeout(() => {
-        setPawns(prev =>
-          prev.map(p => (p.id === pawnId ? { ...p, row: pos.row, col: pos.col } : p))
-        )
-        if (i === path.length - 1) onDone?.()
-      }, (i + 1) * stepDelay)
-    })
+  const timers = useRef<number[]>([])
+
+  function stopMove() {
+    timers.current.forEach(window.clearTimeout)
+    timers.current = []
+  }
+
+  function testMove() {
+    stopMove()
+    timers.current = TEST_PATH.map((position, index) =>
+      window.setTimeout(() => {
+        setPawns(previous => previous.map(pawn =>
+          pawn.id === 'red-1' ? { ...pawn, ...position } : pawn
+        ))
+      }, (index + 1) * 200)
+    )
+  }
+
+  function showStack(include: (pawn: Pawn) => boolean) {
+    stopMove()
+    setPawns(INITIAL_PAWNS.map(pawn =>
+      include(pawn) ? { ...pawn, row: 6, col: 1 } : pawn
+    ))
   }
 
   return (
@@ -77,9 +86,16 @@ function Board() {
         </tbody>
       </table>
 
-      <button onClick={() => movePawn('red-1', TEST_PATH)}>
-        Test move (red pawn)
-      </button>
+      <div className="demo-buttons">
+        <button onClick={testMove}>Test move (red pawn)</button>
+        <button onClick={() => showStack(p => p.color === 'red')}>Stack 4 red</button>
+        <button onClick={() => showStack(p => ['red-1', 'red-2', 'red-3', 'blue-1', 'blue-2'].includes(p.id))}>
+          Stack 3 red + 2 blue
+        </button>
+        <button onClick={() => showStack(p => p.id.endsWith('-1'))}>Stack 1 of each color</button>
+        <button onClick={() => showStack(() => true)}>Stack all 16</button>
+        <button onClick={() => showStack(() => false)}>Reset board</button>
+      </div>
     </div>
   )
 }
