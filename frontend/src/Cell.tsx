@@ -1,6 +1,5 @@
 import './Cell.css'
 import { getCellInfo } from './colorLogic'
-import { MapPin } from 'lucide-react'
 import { PAWN_COLOR_HEX, type Pawn } from './types'
 
 interface CellProps {
@@ -21,12 +20,12 @@ function Cell({ row, col, pawns }: CellProps) {
       {pawns.length > 0 && (
         <div className={`pawn-layer${pawns.length > 1 ? ' pawn-layer--multi' : ''}`}>
           {pawns.map(p => (
-            <MapPin
+            <span
               key={p.id}
               className="pawn-icon"
-              fill={PAWN_COLOR_HEX[p.color]}
-              stroke="#000"
-              strokeWidth={1.5}
+              style={{ color: PAWN_COLOR_HEX[p.color] }}
+              role="img"
+              aria-label={`${p.color} pawn`}
             />
           ))}
         </div>

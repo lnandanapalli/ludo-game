@@ -52,9 +52,36 @@
 }
 
 .pawn-icon {
-  width: 70%;
-  height: 70%;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5));
+  --lit: color-mix(in srgb, currentColor 55%, white);
+  --shade: color-mix(in srgb, currentColor 58%, #181320);
+  --rim: color-mix(in srgb, currentColor 38%, #181320);
+  position: relative;
+  width: 78%;
+  height: 88%;
+  background: radial-gradient(ellipse 43% 19% at 50% 77%,
+    var(--lit) 0%, currentColor 55%, var(--shade) 84%, var(--rim) 98%, transparent 100%);
+  filter: drop-shadow(0 1px 1px #20152580);
+}
+
+/* The tapered stem sits behind a polished spherical head. */
+.pawn-icon::before,
+.pawn-icon::after {
+  content: "";
+  position: absolute;
+}
+
+.pawn-icon::before {
+  inset: 34% 20% 18%;
+  border-radius: 0 0 45% 45%;
+  clip-path: polygon(29% 0, 71% 0, 69% 26%, 75% 54%, 100% 93%, 100% 100%, 0 100%, 0 93%, 25% 54%, 31% 26%);
+  background: linear-gradient(100deg, var(--shade), var(--lit) 29%, currentColor 52%, var(--shade) 80%, var(--rim));
+}
+
+.pawn-icon::after {
+  inset: 4% 22% 47%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 33% 23%, #fffffff0, transparent 22%),
+    radial-gradient(circle at 36% 30%, var(--lit), currentColor 46%, var(--shade) 73%, var(--rim) 95%);
 }
 
 .pawn-layer--multi .pawn-icon {
