@@ -2,11 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import Board from './Board'
 import BoardGrid from './BoardGrid'
 import { request, type Match, type Session } from './api'
+import Die from './Die'
 import './App.css'
 
 const storageKey = 'ludo-seat'
 const invite = new URLSearchParams(location.search).get('room') || ''
-const dice = ['–', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅']
+function Wordmark() {
+  return <h1 className="wordmark"><span className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></span>Ludo</h1>
+}
 
 function savedSeat(): Session | null {
   try {
@@ -51,36 +54,40 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
   }
 
   const ownTurn = game?.mode === 'local' || game?.seat === game?.current
-  return <main>
-    <header><h1>Ludo</h1><button onClick={leave}>Back to lobby</button></header>
+  const prompt = !game?.ready ? 'Waiting for players' : game.phase === 'won' ? game.message
+    : !ownTurn ? `Waiting for ${game.current}` : game.phase === 'move' ? 'Tap a highlighted pawn' : 'Tap the die to roll'
+  return <main className="match">
+    <header><Wordmark/><button className="quiet" onClick={leave}>Back to lobby</button></header>
     {error && <p role="alert">{error}</p>}
     {!game ? <p>Loading game…</p> : <>
-      <h2>{!game.ready ? 'Waiting for players' : game.phase === 'won' ? game.message : game.current + '’s turn'}</h2>
+      <ul className="players" aria-label="Players and pawns home">{game.colors.map(color =>
+        <li key={color} data-seat={color} className={game.current === color ? 'active-seat' : ''}>
+          <strong>{color}</strong><small>{game.pawns.filter(p => p.color === color && p.step === 56).length}/4 home</small>
+        </li>)}</ul>
       {game.mode === 'online' && <p>Your seat is <b>{game.seat}</b>. {game.joined}/{game.colors.length} joined.
         {' '}Room <code>{game.room}</code></p>}
       {!game.ready && <label>Invite link<input readOnly value={location.origin + location.pathname + '?room=' + game.room}
         onFocus={e => e.target.select()} /></label>}
-      <BoardGrid pawns={game.pawns} moves={ownTurn && !busy
+      <div className="board-frame"><BoardGrid pawns={game.pawns} moves={ownTurn && !busy
         ? new Map(game.legal.map(i => [game.current + '-' + (i + 1), () => act('move', i)]))
-        : undefined} />
-      <section className="controls" aria-label="Turn controls">
-        <span className="die" aria-label={'Die: ' + game.die}>{dice[game.die]}</span>
-        {game.ready && game.phase === 'roll' && <button disabled={!ownTurn || busy} onClick={() => act('roll')}>Roll die</button>}
-        {game.ready && game.phase === 'move' && ownTurn && game.legal.map(i => {
-          const pawn = game.pawns.find(p => p.id === game.current + '-' + (i+1))!
-          const where = pawn.step < 0 ? 'yard' : 'row ' + (pawn.row+1) + ', col ' + (pawn.col+1)
-          return <button key={i} disabled={busy} onClick={() => act('move', i)}>Pawn {i+1} ({where})</button>
-        })}
-        {game.ready && !ownTurn && game.phase !== 'won' && <span>Waiting for {game.current}</span>}
+        : undefined} /></div>
+      <section className="turn-tray controls" data-seat={game.current} aria-label="Turn controls">
+        <div><small>{game.phase === 'won' ? 'Game over' : game.current + '’s turn'}</small>
+          <h2>{prompt}</h2><p aria-live="polite">{game.message}</p></div>
+        <button className="roll" aria-label="Roll die" title={game.die ? 'Last roll: ' + game.die : 'Roll die'}
+          disabled={!game.ready || !ownTurn || busy || game.phase !== 'roll'} onClick={() => act('roll')}>
+          <Die value={game.die} />
+        </button>
       </section>
-      <p aria-live="polite">{game.message}</p>
-      <p>{game.colors.map(color => color + ' ' + game.pawns.filter(p => p.color === color && p.step === 56).length + '/4').join(' · ')} home</p>
     </>}
   </main>
 }
 
 export default function App() {
   const [session, setSession] = useState(savedSeat)
+  const [preferences, setPreferences] = useState<Record<string, boolean>>({})
+  const [guestAuto, setGuestAuto] = useState(true)
+  const [mode, setMode] = useState<'local' | 'online'>('local')
   const [players, setPlayers] = useState(2)
   const [room, setRoom] = useState(invite)
   const [busy, setBusy] = useState(false)
@@ -92,8 +99,8 @@ export default function App() {
     setError('')
     try {
       const seat = mode === 'join'
-        ? await request<Session>('/rooms/' + encodeURIComponent(room.trim().toLowerCase()) + '/join', undefined, {})
-        : await request<Session>('/rooms', undefined, { mode, players })
+        ? await request<Session>('/rooms/' + encodeURIComponent(room.trim().toLowerCase()) + '/join', undefined, { auto_move: guestAuto })
+        : await request<Session>('/rooms', undefined, { mode, players, auto_move: Object.fromEntries(colors.map(c => [c, preferences[c] ?? true])) })
       localStorage.setItem(storageKey, JSON.stringify(seat))
       history.replaceState(null, '', location.pathname)
       setSession(seat)
@@ -103,19 +110,27 @@ export default function App() {
   }
   if (session && !lobby) return <Play key={session.room} session={session} leave={() => setLobby(true)} />
   if (demo) return <main><button onClick={() => setDemo(false)}>Back to lobby</button><Board /></main>
-  return <main className="lobby"><h1>Ludo</h1>
+  const colors = players === 2 ? ['red', 'yellow'] : ['red', 'green', 'yellow', 'blue'].slice(0, players)
+  return <main className="lobby"><header><Wordmark/><button className="quiet" onClick={() => setDemo(true)}>Pawn demos</button></header>
     {session && <button onClick={() => setLobby(false)}>Resume game</button>}
-    <section><h2>Start a game</h2>
-      <label>Players <select value={players} onChange={e => setPlayers(Number(e.target.value))}>
-        {[2,3,4].map(n => <option key={n}>{n}</option>)}</select></label>
-      <div className="controls"><button disabled={busy} onClick={() => enter('local')}>Pass and play</button>
-        <button disabled={busy} onClick={() => enter('online')}>Create online room</button></div>
+    <div className="setup-layout"><section className="panel"><h2>Start a game</h2>
+      <div className="segmented" aria-label="Game mode">
+        <button aria-pressed={mode === 'local'} onClick={() => setMode('local')}>One device</button>
+        <button aria-pressed={mode === 'online'} onClick={() => setMode('online')}>Online</button>
+      </div>
+      <fieldset><legend>Players</legend><div className="numbers">{[2,3,4].map(n =>
+        <button key={n} aria-pressed={n === players} onClick={() => setPlayers(n)}>{n}</button>)}</div></fieldset>
+      <fieldset><legend>Auto-move the only legal pawn</legend>
+        {(mode === 'local' ? colors : ['red']).map(c => <label key={c} data-seat={c} className="preference">
+          <span>{c}</span><input type="checkbox" checked={preferences[c] ?? true}
+            onChange={e => setPreferences({...preferences, [c]: e.target.checked})}/></label>)}</fieldset>
+      <button className="primary" disabled={busy} onClick={() => enter(mode)}>{mode === 'local' ? 'Pass and play' : 'Create online room'}</button>
     </section>
-    <form onSubmit={e => { e.preventDefault(); void enter('join') }}><h2>Join a room</h2>
-      <label>Room code<input value={room} onChange={e => setRoom(e.target.value)} required /></label>
+    <form className="panel join" onSubmit={e => { e.preventDefault(); void enter('join') }}><h2>Join a room</h2>
+      <label>Room code<input value={room} placeholder="Enter code" onChange={e => setRoom(e.target.value)} required /></label>
+      <label className="preference">Auto-move my only legal pawn<input type="checkbox" checked={guestAuto} onChange={e => setGuestAuto(e.target.checked)}/></label>
       <button disabled={busy || !room.trim()}>Join room</button>
-    </form>
+    </form></div>
     {error && <p role="alert">{error}</p>}
-    <button onClick={() => setDemo(true)}>Pawn demos</button>
   </main>
 }
