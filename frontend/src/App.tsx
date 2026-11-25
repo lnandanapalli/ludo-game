@@ -171,20 +171,16 @@ export default function App() {
       <fieldset><legend>Players</legend><div className="numbers">{[2,3,4].map(n =>
         <button key={n} aria-pressed={n === players} onClick={() => setPlayers(n)}>{n}</button>)}</div></fieldset>
       {(mode === 'local' ? colors : ['red']).map(c => <ProfilePicker key={c} seat={c}
+        autoMove={preferences[c] ?? true} onAutoMove={enabled => setPreferences({...preferences, [c]: enabled})}
         profile={profiles[c] || defaultProfile(c)} change={profile => setProfiles({...profiles, [c]: profile})}/>)}
       {mode === 'online' && <label className="preference">Computer substitutes after 5 minutes offline
         <input type="checkbox" checked={substitutes} onChange={e => setSubstitutes(e.target.checked)} /></label>}
-      <fieldset><legend>Auto-move the only legal pawn</legend>
-        {(mode === 'local' ? colors : ['red']).map(c => <label key={c} data-seat={c} className="preference">
-          <span>{c}</span><input type="checkbox" checked={preferences[c] ?? true}
-            onChange={e => setPreferences({...preferences, [c]: e.target.checked})}/></label>)}</fieldset>
       <SoundToggle/>
       <button className="primary" disabled={busy} onClick={() => enter(mode)}>{mode === 'local' ? 'Pass and play' : 'Create online room'}</button>
     </section>
     <form className="panel join" onSubmit={e => { e.preventDefault(); void enter('join') }}><h2>Join a room</h2>
       <label>Room code<input value={room} placeholder="Enter code" onChange={e => setRoom(e.target.value)} required /></label>
-      <ProfilePicker seat="guest" profile={guestProfile} change={setGuestProfile}/>
-      <label className="preference">Auto-move my only legal pawn<input type="checkbox" checked={guestAuto} onChange={e => setGuestAuto(e.target.checked)}/></label>
+      <ProfilePicker seat="guest" profile={guestProfile} change={setGuestProfile} autoMove={guestAuto} onAutoMove={setGuestAuto}/>
       <button disabled={busy || !room.trim()}>Join room</button>
     </form></div>
     {error && <p role="alert">{error}</p>}
