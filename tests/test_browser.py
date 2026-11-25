@@ -98,3 +98,23 @@ def test_two_player_match_fits_resized_viewport():
                 box = element.bounding_box()
                 assert 0 <= box["y"] and box["y"] + box["height"] <= height
         browser.close()
+
+
+def test_missing_saved_room_returns_to_lobby_without_polling():
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
+        page = browser.new_page()
+        page.add_init_script("""localStorage.setItem('ludo-seat',
+            JSON.stringify({room: 'missing-room', token: 'old-seat'}))""")
+        requests = []
+        def missing(route):
+            requests.append(route.request.url)
+            route.fulfill(status=404, json={"detail": "Room not found."})
+        page.route("**/rooms/missing-room*", missing)
+        page.goto(os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173"))
+        expect(page.get_by_role("alert")).to_have_text("Room not found.")
+        expect(page.get_by_text("Pass and play")).to_be_visible()
+        assert page.evaluate("localStorage.getItem('ludo-seat')") is None
+        page.wait_for_timeout(2200)
+        assert len(requests) == 1
+        browser.close()
