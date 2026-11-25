@@ -10,14 +10,6 @@
   padding: 0;
 }
 
-.demo-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem;
-  width: min(90vw, 600px);
-  margin: 1rem auto;
-}
 
 .ludo-board td { position: relative; }
 .ludo-board .board-choice {

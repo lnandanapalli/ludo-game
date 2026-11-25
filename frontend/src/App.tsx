@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import Board from './Board'
 import BoardGrid from './BoardGrid'
 import { ApiError, request, type Match, type Profile, type Session } from './api'
 import Die from './Die'
@@ -130,7 +129,6 @@ export default function App() {
   const [room, setRoom] = useState(invite)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [demo, setDemo] = useState(false)
   const [lobby, setLobby] = useState(true)
   const forget = useCallback((message: string) => {
     localStorage.removeItem(storageKey)
@@ -161,9 +159,8 @@ export default function App() {
     finally { setBusy(false) }
   }
   if (session && !lobby) return <Play key={session.room} session={session} leave={() => setLobby(true)} forget={forget} />
-  if (demo) return <main><button onClick={() => setDemo(false)}>Back to lobby</button><Board /></main>
   const colors = players === 2 ? ['red', 'yellow'] : ['red', 'green', 'yellow', 'blue'].slice(0, players)
-  return <main className="lobby"><header><Wordmark/><button className="quiet" onClick={() => setDemo(true)}>Pawn demos</button></header>
+  return <main className="lobby"><header><Wordmark/></header>
     {session && <div><button onClick={() => setLobby(false)}>Resume game</button>{' '}
       <button className="quiet" onClick={() => { if (window.confirm("Remove the saved seat from this browser?")) forget('') }}>Forget saved seat</button></div>}
     <div className="setup-layout"><section className="panel"><h2>Start a game</h2>
