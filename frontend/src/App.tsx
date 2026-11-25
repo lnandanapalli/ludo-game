@@ -161,8 +161,11 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
       <button type="button" className="quiet" aria-label="Game settings" popoverTarget="game-settings">•••</button>
       <div id="game-settings" popover="auto"><SoundToggle/>
         <button type="button" className="quiet" onClick={async () => {
-          if (!window.confirm("Leave this game? Resume from the lobby or rejoin with the room code until the game ends.")) return
-          try { await request(path + '/leave', session.token, {}); leave() }
+          const online = game?.mode === 'online' && game.phase !== 'won'
+          if (!window.confirm(online
+            ? "Leave this game for good? You can't rejoin. A computer takes your seat if substitutes are on; otherwise you're removed."
+            : "Leave this game? You can resume from the lobby.")) return
+          try { await request(path + '/leave', session.token, {}); if (online) forget('You left the game.'); else leave() }
           catch (e) { if (unavailable(e)) forget('Room unavailable.'); else setError((e as Error).message) }
         }}>Leave game</button>
         {game?.can_end && <button type="button" className="quiet" onClick={async () => {

@@ -71,7 +71,10 @@ def test_online_and_local():
         settings.click()
         host.once("dialog", lambda dialog: dialog.accept())
         host.get_by_role("button", name="Leave game").click()
-        expect(guest.locator('.seat-card[data-seat="red"] .presence')).to_have_text("Left")
+        # Leaving on purpose hands the seat to a computer, since substitutes are on by default.
+        expect(guest.locator('.seat-card[data-seat="red"] .presence')).to_have_text("CPU")
+        expect(host.get_by_role("alert")).to_have_text("You left the game.")
+        expect(host.get_by_text("Resume game")).to_have_count(0)
         host.get_by_role("button", name="One device").click()
         host.get_by_text("Pass and play").click()
         roll = host.get_by_role("button", name="Roll die")
@@ -199,4 +202,31 @@ def test_own_invite_link_keeps_host_seat():
         page.get_by_role("button", name="Join room").click()
         expect(page.get_by_role("alert")).to_have_text("You already have a seat in this room. Use Resume game.")
         assert page.evaluate("localStorage.getItem('ludo-seat')") == seat
+        browser.close()
+
+
+def test_leaving_without_substitutes_removes_pawns():
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
+        host = browser.new_page()
+        host.goto(os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173"))
+        host.get_by_role("button", name="Online", exact=True).click()
+        host.get_by_role("button", name="3", exact=True).click()
+        host.get_by_role("checkbox", name="Computer substitutes", exact=False).uncheck()
+        host.get_by_text("Create online room").click()
+        invite = host.get_by_label("Invite link").input_value()
+        guests = []
+        for _ in range(2):
+            guest = browser.new_page()
+            guest.goto(invite)
+            guest.get_by_role("button", name="Join room").click()
+            guests.append(guest)
+        expect(host.locator('.pawn-icon[aria-label="green pawn"]')).to_have_count(4)
+        green = guests[0]
+        green.get_by_role("button", name="Game settings").click()
+        green.once("dialog", lambda dialog: dialog.accept())
+        green.get_by_role("button", name="Leave game").click()
+        expect(green.get_by_role("alert")).to_have_text("You left the game.")
+        expect(host.locator('.seat-card[data-seat="green"] .presence')).to_have_text("Left")
+        expect(host.locator('.pawn-icon[aria-label="green pawn"]')).to_have_count(0)
         browser.close()

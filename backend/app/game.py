@@ -49,7 +49,8 @@ class Game:
     started_at: float | None = None
     roller: str | None = None
     turn_started: float | None = None
-    left: list[str] = field(default_factory=list)
+    quit: list[str] = field(default_factory=list)  # Chose Leave game; never returns to the seat.
+    out: list[str] = field(default_factory=list)   # Removed from play; turns skip these colors.
 
     @classmethod
     def new(cls, count):
@@ -68,8 +69,24 @@ class Game:
 
     def pass_turn(self):
         self.turn = (self.turn + 1) % len(self.colors)
+        while self.current in self.out:
+            self.turn = (self.turn + 1) % len(self.colors)
         self.sixes = 0
         self.phase = "roll"
+
+    def remove(self, color, reason):
+        """Take a color out of play; the last color still playing wins."""
+        if color in self.out or self.phase == "won":
+            return
+        self.out.append(color)
+        remaining = [c for c in self.colors if c not in self.out]
+        self.message = f"{color.title()} {reason}."
+        if len(remaining) == 1:
+            self.turn = self.colors.index(remaining[0])
+            self.phase = "won"
+            self.message += f" {remaining[0].title()} wins!"
+        elif self.current == color:
+            self.pass_turn()
 
     def roll(self, die):
         if self.phase != "roll":
@@ -107,7 +124,7 @@ class Game:
         captured = 0
         if pieces[pawn] <= 50 and destination not in SAFE:
             for other in self.colors:
-                if other == color:
+                if other == color or other in self.out:
                     continue
                 for i, step in enumerate(self.pieces[other]):
                     if 0 <= step <= 50 and position(other, i, step) == destination:
@@ -130,11 +147,13 @@ class Game:
     def view(self):
         pawns = []
         for color, pieces in self.pieces.items():
+            if color in self.out:
+                continue
             for i, step in enumerate(pieces):
                 row, col = position(color, i, step)
                 pawns.append(dict(id=f"{color}-{i+1}", color=color, row=row, col=col, step=step))
         return dict(last_move=self.last_move, started_at=self.started_at, profiles=self.profiles, roll_number=self.roll_number, roller=self.roller, current=self.current, phase=self.phase, die=self.die, message=self.message,
-                    colors=self.colors, pawns=pawns, legal=self.legal())
+                    colors=self.colors, out=self.out, pawns=pawns, legal=self.legal())
 
     def dump(self):
         return asdict(self)

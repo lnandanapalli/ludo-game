@@ -66,21 +66,55 @@ def test_turn_timers_roll_then_move_for_a_slow_seat(client, monkeypatch):
     assert moved["turn_seconds"] == 5 and moved["presence"] == {"red": "offline", "yellow": "online"}
 
 
-def test_player_who_left_rejoins_with_room_code(client):
-    host = client.post("/rooms", json={"players": 2, "mode": "online",
-                                       "profiles": {"red": {"name": "Nova", "avatar": "owl"}}}).json()
+def online_room(client, players, substitutes):
+    host = client.post("/rooms", json={"players": players, "mode": "online", "substitutes": substitutes}).json()
     url = "/rooms/" + host["room"]
-    red = {"Authorization": "Bearer " + host["token"]}
-    yellow = {"Authorization": "Bearer " + client.post(url + "/join").json()["token"]}
-    assert client.post(url + "/join").json()["detail"] == "Room is full."
-    client.post(url + "/leave", headers=red)
-    seat = client.post(url + "/join", json={"profile": {"name": "nova", "avatar": "fox"}})
-    assert seat.status_code == 201
-    back = client.get(url, headers={"Authorization": "Bearer " + seat.json()["token"]}).json()
-    assert back["seat"] == "red" and back["can_end"] and back["profiles"]["red"]["name"] == "Nova"
-    assert client.get(url, headers=red).status_code == 403
-    assert client.get(url, headers=yellow).json()["presence"]["red"] == "online"
+    seats = [{"Authorization": "Bearer " + host["token"]}]
+    for _ in range(players - 1):
+        seats.append({"Authorization": "Bearer " + client.post(url + "/join").json()["token"]})
+    return url, seats
+
+
+def test_leaving_without_substitutes_removes_the_seat(client):
+    url, (red, green, yellow) = online_room(client, 3, substitutes=False)
+    assert client.post(url + "/leave", headers=red).json() == {"ended": False}
+    state = client.get(url, headers=green).json()
+    assert state["out"] == ["red"] and state["presence"]["red"] == "left"
+    assert state["current"] == "green" and state["message"] == "Red left the game."
+    assert all(p["color"] != "red" for p in state["pawns"])
+    # Only the seat's own token could reconnect, and leaving on purpose closes it.
+    assert client.get(url, headers=red).json()["detail"] == "You left this game."
     assert client.post(url + "/join").status_code == 409
+    client.post(url + "/leave", headers=green)
+    won = client.get(url, headers=yellow).json()
+    assert won["phase"] == "won" and won["current"] == "yellow"
+    assert won["message"] == "Green left the game. Yellow wins!"
+
+
+def test_leaving_with_substitutes_hands_the_seat_to_a_computer(client, monkeypatch):
+    monkeypatch.setattr("app.main.secrets.randbelow", lambda _: 5)
+    url, (red, yellow) = online_room(client, 2, substitutes=True)
+    client.post(url + "/leave", headers=red)
+    played = client.get(url, headers=yellow).json()
+    assert played["presence"]["red"] == "computer" and played["roll_number"] == 1
+    assert client.get(url, headers=red).status_code == 410
+
+
+def test_disconnected_seat_is_removed_after_five_minutes_without_substitutes(client, monkeypatch):
+    now = [1000]
+    monkeypatch.setattr("app.main.time", type("Clock", (), {"time": lambda: now[0]}))
+    url, (red, green, yellow) = online_room(client, 3, substitutes=False)
+    now[0] += 299
+    client.get(url, headers=green)
+    # Within five minutes the disconnected seat may reconnect.
+    assert client.get(url, headers=yellow).json()["presence"]["red"] == "offline"
+    assert client.get(url, headers=red).json()["presence"]["red"] == "online"
+    for _ in range(2):
+        now[0] += 150
+        client.get(url, headers=green)
+        removed = client.get(url, headers=yellow).json()
+    assert removed["out"] == ["red"] and "removed after 5 minutes offline" in removed["message"]
+    assert client.get(url, headers=red).json()["detail"] == "You were removed after 5 minutes offline."
 
 
 def test_end_room(client):
@@ -94,22 +128,15 @@ def test_end_room(client):
     assert client.get(path, headers=headers).status_code == 404
 
 
-def test_presence_and_substitute_play_without_waiting(client, monkeypatch):
+def test_disconnected_seat_gets_a_computer_and_can_reconnect(client, monkeypatch):
     now = [1000]
     monkeypatch.setattr("app.main.time", type("Clock", (), {"time": lambda: now[0]}))
     monkeypatch.setattr("app.main.secrets.randbelow", lambda _: 5)
-    host = client.post("/rooms", json={"players": 2, "mode": "online", "substitutes": True}).json()
-    url = "/rooms/" + host["room"]
-    red = {"Authorization": "Bearer " + host["token"]}
-    yellow = {"Authorization": "Bearer " + client.post(url + "/join").json()["token"]}
+    url, (red, yellow) = online_room(client, 2, substitutes=True)
     assert client.get(url, headers=yellow).json()["presence"] == {"red": "online", "yellow": "online"}
-    assert client.post(url + "/leave", headers=red).json() == {"ended": False}
-    assert client.get(url, headers=yellow).json()["presence"]["red"] == "left"
-    assert client.get(url, headers=red).json()["presence"]["red"] == "online"
-    client.post(url + "/leave", headers=red)
     now[0] += 299
     timed_out = client.get(url, headers=yellow).json()
-    assert timed_out["presence"]["red"] == "left" and timed_out["message"] == "Time's up. Red rolled 6."
+    assert timed_out["presence"]["red"] == "offline" and timed_out["message"] == "Time's up. Red rolled 6."
     now[0] += 1
     moved = client.get(url, headers=yellow).json()
     assert "computers" not in moved and "substitutes" not in moved

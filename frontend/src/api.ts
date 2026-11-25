@@ -16,6 +16,7 @@ export interface Match {
   current: PawnColor
   seat: PawnColor
   colors: PawnColor[]
+  out: PawnColor[]
   joined: number
   ready: boolean
   revision: number

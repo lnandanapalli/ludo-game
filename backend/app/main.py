@@ -3,6 +3,7 @@ import hashlib
 import os
 import secrets
 import time
+from dataclasses import fields
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -60,7 +61,8 @@ def load(db, room, *, lock=False):
     row = db.execute(query + (" FOR UPDATE" if lock else ""), (room,)).fetchone()
     if row is None:
         raise HTTPException(404, "Room not found.")
-    game = Game(**row["state"])
+    known = {f.name for f in fields(Game)}
+    game = Game(**{k: v for k, v in row["state"].items() if k in known})
     return row, game, row["seats"]
 
 
@@ -68,7 +70,7 @@ ROLL_SECONDS = 5       # Time to roll before the server rolls for the seat.
 MOVE_SECONDS = 15      # Time to move before the server moves a random legal pawn.
 HEARTBEAT_SECONDS = 5  # How often a polling seat refreshes its last_seen time.
 OFFLINE_SECONDS = 15   # A seat without a heartbeat for this long shows as offline.
-AWAY_SECONDS = 300     # A seat away this long is played by a computer substitute.
+AWAY_SECONDS = 300     # A disconnected seat is substituted, or removed without substitutes, after this.
 
 
 def presence(row, game, seats, now):
@@ -76,10 +78,10 @@ def presence(row, game, seats, now):
         return {}
     status = {}
     for color in game.colors[:len(seats)]:
-        if color in game.computers:
-            status[color] = "computer"
-        elif color in game.left:
+        if color in game.out:
             status[color] = "left"
+        elif color in game.computers:
+            status[color] = "computer"
         elif now - game.last_seen.get(color, now) >= OFFLINE_SECONDS:
             status[color] = "offline"
         else:
@@ -90,6 +92,11 @@ def presence(row, game, seats, now):
 def snapshot(row, game, seats, key):
     if key not in seats:
         raise HTTPException(403, "This seat belongs to another session.")
+    color = game.colors[seats.index(key)]
+    if color in game.quit:
+        raise HTTPException(410, "You left this game.")
+    if color in game.out:
+        raise HTTPException(410, "You were removed after 5 minutes offline.")
     now = time.time()
     host = seats[0] == key
     ready = row["mode"] == "local" or len(seats) == len(game.colors)
@@ -176,9 +183,7 @@ def join(room: str, setup: JoinSetup | None = None):
         if row["mode"] != "online":
             raise HTTPException(409, "Room is private to one device.")
         if len(seats) >= len(game.colors):
-            if game.phase == "won" or not game.left:
-                raise HTTPException(409, "Room is full.")
-            return rejoin(db, room, game, seats, token, setup)
+            raise HTTPException(409, "Room is full.")
         for color in game.colors[:len(seats)+1]:
             game.last_seen.setdefault(color, time.time())
         if setup and setup.profile:
@@ -192,24 +197,6 @@ def join(room: str, setup: JoinSetup | None = None):
     return {"room": room, "token": token}
 
 
-def rejoin(db, room, game, seats, token, setup):
-    """Give a seat that left back to whoever enters the room code, preferring a matching name."""
-    name = (setup.profile.name.strip().lower() if setup and setup.profile else "")
-    color = next((c for c in game.left if name and game.profiles.get(c, {}).get("name", "").strip().lower() == name),
-                 game.left[0])
-    now = time.time()
-    seats[game.colors.index(color)] = digest(token)
-    game.left.remove(color)
-    game.last_seen[color] = now
-    if color in game.computers:
-        game.computers.remove(color)
-    if setup:
-        game.auto_move[color] = setup.auto_move
-    db.execute("UPDATE ludo.rooms SET seats=%s, state=%s, revision=revision+1 WHERE id=%s",
-               (Jsonb(seats), Jsonb(game.dump()), room))
-    return {"room": room, "token": token}
-
-
 @app.get("/rooms/{room}")
 def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = False):
     with database() as db:
@@ -219,9 +206,6 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
             now = time.time()
             seat = result["seat"]
             saved = changed = False
-            if seat in game.left:
-                game.left.remove(seat)
-                saved = True
             if now - game.last_seen.get(seat, 0) >= HEARTBEAT_SECONDS:
                 for color in game.colors[:len(seats)]:
                     game.last_seen.setdefault(color, now)
@@ -230,11 +214,19 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
             if result["ready"] and game.turn_started is None:
                 game.turn_started = now
                 saved = True
+            playing = [c for c in game.colors[:len(seats)] if c not in game.out]
+            away = [c for c in playing if c in game.quit or now - game.last_seen[c] >= AWAY_SECONDS]
             if game.substitutes:
-                computers = [c for c in game.colors[:len(seats)] if now - game.last_seen[c] >= AWAY_SECONDS]
-                changed = computers != game.computers
-                game.computers = computers
-            if result["ready"]:
+                # Seats that left, or stayed disconnected for five minutes, get a computer.
+                changed = away != game.computers
+                game.computers = away
+            else:
+                # Without substitutes, a seat disconnected for five minutes is out of the game.
+                for color in away:
+                    game.remove(color, "was removed after 5 minutes offline")
+                    game.turn_started = now
+                    changed = True
+            if result["ready"] and game.phase != "won":
                 before = progress(game)
                 if game.current in game.computers:
                     # Substitutes play at once, after clients finish showing the last action.
@@ -257,14 +249,21 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
 
 @app.post("/rooms/{room}/leave")
 def leave(room: str, key: Annotated[str, Depends(credential)]):
+    """Online: give up the seat for good. Local: nothing to record; the device can resume."""
     with database() as db:
         row, game, seats = load(db, room, lock=True)
-        state = snapshot(row, game, seats, key)
-        if row["mode"] == "online":
-            game.last_seen[state["seat"]] = time.time()
-            if state["seat"] not in game.left:
-                game.left.append(state["seat"])
-            db.execute("UPDATE ludo.rooms SET state=%s WHERE id=%s", (Jsonb(game.dump()), room))
+        color = snapshot(row, game, seats, key)["seat"]
+        if row["mode"] == "online" and game.phase != "won":
+            game.quit.append(color)
+            if game.substitutes:
+                game.computers.append(color)
+                game.message = f"{color.title()} left; a computer plays for them."
+            else:
+                current = game.current
+                game.remove(color, "left the game")
+                if game.current != current:
+                    game.turn_started = time.time()
+            db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+1 WHERE id=%s", (Jsonb(game.dump()), room))
     return {"ended": False}
 
 
@@ -301,7 +300,5 @@ def act(room: str, command: Command, key: Annotated[str, Depends(credential)]):
         start_timer(game, now, before)
         if row["mode"] == "online":
             game.last_seen[state["seat"]] = now
-            if state["seat"] in game.left:
-                game.left.remove(state["seat"])
         db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+1 WHERE id=%s", (Jsonb(game.dump()), room))
         return snapshot(*load(db, room), key)

@@ -24,7 +24,7 @@ npm ci
 npm run dev
 ```
 
-Open http://localhost:5173. Choose **Pass and play** to share a device. For **Create online room**, choose the seat count first, then share the invite link or room code. Each friend joins from a separate browser profile or device. The match starts when all seats are filled. Opening or refreshing shows the lobby. Resume game reopens your saved seat. Local games can be resumed indefinitely. Leave game saves your seat for Resume. Only the online host (or the local device) can end the game for everyone. Starting or joining another match replaces the saved seat. In Codespaces, run both servers in the same Codespace, leave VITE_API_URL unset, and open forwarded port 5173. Visit /api/health on that frontend URL to check the connection.
+Open http://localhost:5173. Choose **Pass and play** to share a device. For **Create online room**, choose the seat count first, then share the invite link or room code. Each friend joins from a separate browser profile or device. The match starts when all seats are filled. Opening or refreshing shows the lobby. Resume game reopens your saved seat. Local games can be resumed indefinitely. Leave game in an online room gives up your seat (see below). Only the online host (or the local device) can end the game for everyone. Starting or joining another match replaces the saved seat. In Codespaces, run both servers in the same Codespace, leave VITE_API_URL unset, and open forwarded port 5173. Visit /api/health on that frontend URL to check the connection.
 
 ## Rules used here
 
@@ -51,6 +51,12 @@ Use a dedicated test Postgres database with the room schema applied as DATABASE_
 
 Stop writes to the old backend, keep a copy of its SQLite file, and apply the Postgres schema above. From `backend/`, with the destination DATABASE_URL set, run `python import_sqlite.py /path/to/ludo.sqlite3` before starting the new backend. The import preserves room codes, seat credentials and turn revisions. Identical rooms are skipped; conflicting rooms roll back the import.
 
-In online rooms a player has 5 seconds to roll, shown as a ring draining around the die, and 15 seconds to move, shown as a ring around their portrait. The ring turns red and the portrait and movable pawns blink during the last 5 seconds. When a timer runs out, the server rolls, or moves a random legal pawn, for that player. Each timer starts once the previous roll or move has finished animating. Every player sees a badge when someone is Offline (no heartbeat for 15 seconds) or has chosen Leave game; both keep playing on the timers. A player who left can return with Resume game or, until the game ends, by joining with the room code (a seat whose name matches is preferred).
+In online rooms a player has 5 seconds to roll, shown as a ring draining around the die, and 15 seconds to move, shown as a ring around their portrait. The ring turns red and the portrait and movable pawns blink during the last 5 seconds. When a timer runs out, the server rolls, or moves a random legal pawn, for that player. Each timer starts once the previous roll or move has finished animating.
 
-The creator of a new online room can enable computer substitutes (selected by default in the lobby). After five minutes without a seat heartbeat, or five minutes after leaving, a computer (badge: CPU) takes over and plays that seat's turns straight away instead of waiting for the timer. Resume with the saved seat to take control again. With substitutes disabled, the timer keeps playing for an absent seat. Only the creator sees the substitution setting. New rooms still wait for all human players to join initially.
+The creator of a new online room chooses whether computer substitutes are on (the default; only the creator sees this setting). Every player sees each seat's status on its card:
+
+- **Disconnected** (network drop or closed browser): shown as Offline after 15 seconds. The timers keep playing for the seat. Only that player can reconnect, with Resume game from the same browser, until the game ends. After 5 minutes away, a computer takes over (CPU) and plays without waiting for the timers; reconnecting hands the seat back. Without substitutes the seat is instead removed after 5 minutes.
+- **Leave game** (chosen on purpose): the player cannot return. With substitutes a computer plays the seat at once; without them the seat is removed.
+- **Removed** (Left): the seat's pawns leave the board and turns skip it. If only one player remains, they win.
+
+Local games have no timers, and Leave game there returns to the lobby with the game saved. Only the creator (or the local device) can end the game for everyone. New rooms still wait for all human players to join initially.
