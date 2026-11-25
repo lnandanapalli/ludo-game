@@ -39,6 +39,9 @@ class Game:
 
     auto_move: dict[str, bool] = field(default_factory=dict)
 
+    substitutes: bool = False
+    computers: list[str] = field(default_factory=list)
+    last_bot_action: float = 0
     last_seen: dict[str, float] = field(default_factory=dict)
     profiles: dict = field(default_factory=dict)
     roll_number: int = 0

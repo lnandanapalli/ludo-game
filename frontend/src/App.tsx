@@ -81,10 +81,10 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
       <button type="button" className="quiet" aria-label="Game settings" popoverTarget="game-settings">•••</button>
       <div id="game-settings" popover="auto"><SoundToggle/>
         <button type="button" className="quiet" onClick={async () => {
-          if (!window.confirm("End this game for all players?")) return
-          try { await request(path + '/leave', session.token, {}); forget('Game ended.') }
+          if (!window.confirm(game?.substitutes ? "Leave your seat to the computer?" : "End this game for all players?")) return
+          try { await request(path + '/leave', session.token, {}); forget(game?.substitutes ? 'You left the room.' : 'Game ended.') }
           catch (e) { if (unavailable(e)) forget('Game ended.'); else setError((e as Error).message) }
-        }}>End game</button>
+        }}>{game?.substitutes ? 'Leave game' : 'End game'}</button>
       </div>
     </div></header>
     {error && <p role="alert">{error}</p>}
@@ -98,6 +98,7 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
         return <div key={color} className="seat-card" data-seat={color} data-active={game.ready && active === color}>
           <span className="portrait">{portraits[profile.avatar]}</span>
           <strong>{profile.name.trim() || color}</strong>
+          {game.computers.includes(color) && <small>CPU</small>}
           <span className="home-dots" aria-label={game.pawns.filter(p => p.color === color && p.step === 56).length + ' home'}>
             {game.pawns.filter(p => p.color === color).map(p => <i key={p.id} data-home={p.step === 56}/>)}</span>
         </div>
@@ -123,6 +124,7 @@ export default function App() {
   const [guestProfile, setGuestProfile] = useState(defaultProfile("guest"))
   const [preferences, setPreferences] = useState<Record<string, boolean>>({})
   const [guestAuto, setGuestAuto] = useState(true)
+  const [substitutes, setSubstitutes] = useState(true)
   const [mode, setMode] = useState<'local' | 'online'>('local')
   const [players, setPlayers] = useState(2)
   const [room, setRoom] = useState(invite)
@@ -150,7 +152,7 @@ export default function App() {
     try {
       const seat = mode === 'join'
         ? await request<Session>('/rooms/' + encodeURIComponent(room.trim().toLowerCase()) + '/join', undefined, { profile: guestProfile, auto_move: guestAuto })
-        : await request<Session>('/rooms', undefined, { mode, players, profiles, auto_move: Object.fromEntries(colors.map(c => [c, preferences[c] ?? true])) })
+        : await request<Session>('/rooms', undefined, { mode, players, profiles, substitutes: mode === 'online' && substitutes, auto_move: Object.fromEntries(colors.map(c => [c, preferences[c] ?? true])) })
       localStorage.setItem(storageKey, JSON.stringify(seat))
       history.replaceState(null, '', location.pathname)
       setSession(seat)
@@ -173,6 +175,8 @@ export default function App() {
         <button key={n} aria-pressed={n === players} onClick={() => setPlayers(n)}>{n}</button>)}</div></fieldset>
       {(mode === 'local' ? colors : ['red']).map(c => <ProfilePicker key={c} seat={c}
         profile={profiles[c] || defaultProfile(c)} change={profile => setProfiles({...profiles, [c]: profile})}/>)}
+      {mode === 'online' && <label className="preference">Computer substitutes after 5 minutes offline
+        <input type="checkbox" checked={substitutes} onChange={e => setSubstitutes(e.target.checked)} /></label>}
       <fieldset><legend>Auto-move the only legal pawn</legend>
         {(mode === 'local' ? colors : ['red']).map(c => <label key={c} data-seat={c} className="preference">
           <span>{c}</span><input type="checkbox" checked={preferences[c] ?? true}

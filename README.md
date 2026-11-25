@@ -50,3 +50,5 @@ Use a dedicated test Postgres database with the room schema applied as DATABASE_
 ## Existing SQLite matches
 
 Stop writes to the old backend, keep a copy of its SQLite file, and apply the Postgres schema above. From `backend/`, with the destination DATABASE_URL set, run `python import_sqlite.py /path/to/ludo.sqlite3` before starting the new backend. The import preserves room codes, seat credentials and turn revisions. Identical rooms are skipped; conflicting rooms roll back the import.
+
+The creator of a new online room can enable computer substitutes (selected by default in the lobby). After five minutes without a seat heartbeat, a computer rolls and chooses legal moves for that seat while another player is in the match. Resume with the saved seat to take control again. With substitutes enabled, Leave game hands the seat over immediately and gives up the seat credential. New rooms still wait for all human players to join initially.

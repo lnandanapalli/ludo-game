@@ -62,3 +62,26 @@ def test_end_room(client):
     assert client.post(path + "/leave").status_code == 401
     assert client.post(path + "/leave", headers=headers).status_code == 200
     assert client.get(path, headers=headers).status_code == 404
+
+
+def test_substitute_rolls_moves_and_returns_seat(client, monkeypatch):
+    now = [1000]
+    monkeypatch.setattr("app.main.time", type("Clock", (), {"time": lambda: now[0]}))
+    monkeypatch.setattr("app.main.secrets.randbelow", lambda _: 5)
+    host = client.post("/rooms", json={"players": 2, "mode": "online", "substitutes": True}).json()
+    url = "/rooms/" + host["room"]
+    red = {"Authorization": "Bearer " + host["token"]}
+    yellow = {"Authorization": "Bearer " + client.post(url + "/join").json()["token"]}
+    now[0] += 299
+    assert client.get(url, headers=yellow).json()["computers"] == []
+    now[0] += 1
+    rolled = client.get(url, headers=yellow).json()
+    assert rolled["computers"] == ["red"] and rolled["phase"] == "move"
+    assert client.get(url, headers=yellow).json()["revision"] == rolled["revision"]
+    now[0] += 2
+    moved = client.get(url, headers=yellow).json()
+    assert any(p["step"] == 0 for p in moved["pawns"])
+    assert client.get(url, headers=red).json()["computers"] == []
+    assert client.post(url + "/leave", headers=red).json() == {"ended": False}
+    assert client.get(url, headers=red).status_code == 403
+    assert client.get(url, headers=yellow).json()["computers"] == ["red"]

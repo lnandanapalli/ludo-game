@@ -27,6 +27,7 @@ class Profile(BaseModel):
 
 
 class Setup(BaseModel):
+    substitutes: bool = False
     profiles: dict[str, Profile] = Field(default_factory=dict)
     players: int = Field(ge=2, le=4)
     mode: Literal["local", "online"]
@@ -61,7 +62,7 @@ def load(db, room, *, lock=False):
         raise HTTPException(404, "Room not found.")
     game = Game(**row["state"])
     if row["mode"] == "online" and game.phase != "won" and game.last_seen:
-        if time.time() - min(game.last_seen.values()) >= 300:
+        if not game.substitutes and time.time() - min(game.last_seen.values()) >= 300:
             raise HTTPException(410, "The online room expired after a player disconnected.")
     return row, game, row["seats"]
 
@@ -69,7 +70,7 @@ def load(db, room, *, lock=False):
 def snapshot(row, game, seats, key):
     if key not in seats:
         raise HTTPException(403, "This seat belongs to another session.")
-    return dict(**game.view(), room=row["id"], mode=row["mode"], revision=row["revision"],
+    return dict(**game.view(), substitutes=game.substitutes, computers=game.computers, room=row["id"], mode=row["mode"], revision=row["revision"],
                 seat=game.colors[seats.index(key)], joined=len(seats),
                 ready=row["mode"] == "local" or len(seats) == len(game.colors))
 
@@ -94,6 +95,7 @@ def create(setup: Setup):
     token = secrets.token_urlsafe(32)
     game = Game.new(setup.players)
     if setup.mode == "online":
+        game.substitutes = setup.substitutes
         game.last_seen[game.colors[0]] = time.time()
     eligible = game.colors if setup.mode == "local" else game.colors[:1]
     game.profiles = {c: setup.profiles[c].model_dump() for c in eligible if c in setup.profiles}
@@ -129,18 +131,46 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
         result = snapshot(row, game, seats, key)
         if not preview and row["mode"] == "online" and game.phase != "won":
             now = time.time()
-            if now - game.last_seen.get(result["seat"], 0) >= 10:
+            seat = result["seat"]
+            heartbeat = now - game.last_seen.get(seat, 0) >= 10
+            if heartbeat:
                 for color in game.colors[:len(seats)]:
                     game.last_seen.setdefault(color, now)
-                game.last_seen[result["seat"]] = now
-                db.execute("UPDATE ludo.rooms SET state=%s WHERE id=%s", (Jsonb(game.dump()), room))
+                game.last_seen[seat] = now
+            changed = False
+            if game.substitutes:
+                computers = [c for c in game.colors[:len(seats)] if now - game.last_seen[c] >= 300]
+                changed = computers != game.computers
+                game.computers = computers
+                if result["ready"] and game.current in computers and now - game.last_bot_action >= 1:
+                    if game.phase == "roll":
+                        game.roll(secrets.randbelow(6) + 1)
+                    else:
+                        game.move(secrets.choice(game.legal()))
+                    game.last_bot_action = now
+                    changed = True
+            if heartbeat or changed:
+                row = db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+%s WHERE id=%s RETURNING *",
+                                 (Jsonb(game.dump()), int(changed), room)).fetchone()
+                result = snapshot(row, game, seats, key)
         return result
 
 
 @app.post("/rooms/{room}/leave")
 def leave(room: str, key: Annotated[str, Depends(credential)]):
     with database() as db:
-        snapshot(*load(db, room, lock=True), key)
+        row, game, seats = load(db, room, lock=True)
+        state = snapshot(row, game, seats, key)
+        if game.substitutes and game.phase != "won":
+            seat = state["seat"]
+            seats[seats.index(key)] = None
+            if any(seats):
+                game.last_seen[seat] = 0
+                if seat not in game.computers:
+                    game.computers.append(seat)
+                db.execute("UPDATE ludo.rooms SET state=%s, seats=%s, revision=revision+1 WHERE id=%s",
+                           (Jsonb(game.dump()), Jsonb(seats), room))
+                return {"ended": False}
         db.execute("DELETE FROM ludo.rooms WHERE id=%s", (room,))
     return {"ended": True}
 
