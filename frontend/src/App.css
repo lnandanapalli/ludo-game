@@ -90,7 +90,7 @@ input:not([type=checkbox]) { display: block; width: 100%; padding: .75rem; margi
 .dice-dock .roll:disabled { opacity: 1; }
 .dice-dock .die-face { width: clamp(35px,6vw,48px); height: auto; aspect-ratio: 1; padding: 7px; }
 .tumble,.rest { display: block; }
-.tumble { animation: tumble .62s cubic-bezier(.25,.6,.38,1) both; }
+.tumble { animation: tumble .62s cubic-bezier(.25,.6,.38,1) infinite; }
 @keyframes tumble { 0% { transform: rotate(0); } 30% { transform: translateY(-10px) rotate(120deg) rotateX(58deg); } 70% { transform: rotate(282deg) rotateY(52deg); } 100% { transform: rotate(360deg); } }
 @keyframes beacon { to { box-shadow: 0 0 0 4px color-mix(in srgb,var(--seat) 30%,transparent), 0 0 16px var(--seat); } }
 .victory { text-align: center; }

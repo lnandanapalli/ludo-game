@@ -50,24 +50,30 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const latest = useRef<Match | null>(null)
-  const [rolling, setRolling] = useState(false)
+  const [roller, setRoller] = useState<Match['roller']>(null)
+  const rolling = roller !== null
+  const clickedAt = useRef<number | null>(null)
   const animation = useRef<number | undefined>(undefined)
   const path = '/rooms/' + session.room
   const accept = useCallback((next: Match) => {
     const old = latest.current
     if (old && next.revision <= old.revision) return
     if (old) playChanges(old, next)
+    let rollDelay = 0
     if (old && next.roll_number > old.roll_number) {
-      setRolling(true)
+      const now = performance.now()
+      rollDelay = Math.max(0, 620 - (now - (clickedAt.current ?? now)))
+      clickedAt.current = null
+      setRoller(next.roller)
       window.clearTimeout(animation.current)
-      animation.current = window.setTimeout(() => setRolling(false), 950)
+      animation.current = window.setTimeout(() => setRoller(null), rollDelay)
     }
     const move = next.last_move
     if (old && move && move.roll !== old.last_move?.roll) {
       const pawn = old.pawns.find(p => p.id === move.pawn)
       const [row, col] = move.path[0]
       setTravel(pawn?.row === row && pawn.col === col && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        ? { move, before: old, delay: next.roll_number > old.roll_number ? 950 : 0 } : null)
+        ? { move, before: old, delay: rollDelay } : null)
     }
     latest.current = next
     setGame(next)
@@ -91,17 +97,26 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
   }, [accept, forget, path, session.token])
 
   async function act(action: 'roll' | 'move', pawn?: number) {
-    if (!game || busy || travel) return
+    if (!game || busy || travel || rolling) return
+    if (action === 'roll') {
+      setRoller(game.current)
+    }
     setBusy(true)
     setError('')
     try {
       accept(await request<Match>(path + '/actions', session.token, { action, pawn, revision: game.revision }))
-    } catch (e) { setError((e as Error).message) }
+    } catch (e) {
+      if (action === 'roll' && clickedAt.current !== null) {
+        clickedAt.current = null
+        setRoller(null)
+      }
+      setError((e as Error).message)
+    }
     finally { setBusy(false) }
   }
 
   const ownTurn = game?.mode === 'local' || game?.seat === game?.current
-  const active = rolling && game?.roller ? game.roller : game?.current
+  const active = roller ?? game?.current
   return <main className="match">
     <header><Wordmark/>{(!game || !game.ready || game.phase === 'won') && <button className="quiet" onClick={leave}>Back to lobby</button>}<div className="match-menu">
       <button type="button" className="quiet" aria-label="Game settings" popoverTarget="game-settings">•••</button>
@@ -143,8 +158,8 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
         </div>}</div>
       <div className="dice-dock controls" data-seat={active}>
         <button className="roll" aria-label="Roll die" title="Roll die"
-          disabled={!!travel || !game.ready || !ownTurn || busy || rolling || game.phase !== 'roll'} onClick={() => act('roll')}>
-          <span key={game.roll_number} className={rolling ? 'tumble' : 'rest'}><Die value={game.die} /></span>
+          disabled={!!travel || !game.ready || !ownTurn || busy || rolling || game.phase !== 'roll'} onClick={() => { clickedAt.current = performance.now(); void act('roll') }}>
+          <span className={rolling ? 'tumble' : 'rest'}><Die value={game.die} /></span>
         </button>
       </div></div></div>
       {!travel && game.phase === 'won' && <h2 className="victory">🏆 {game.profiles[game.current]?.name || game.current} wins!</h2>}

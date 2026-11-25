@@ -51,8 +51,13 @@ def test_online_and_local():
             assert die["y"] + die["height"] <= board["y"]
             expect(page.locator('.seat-card[data-seat="red"]')).to_contain_text("Nova")
             expect(page.locator('.seat-card[data-seat="yellow"]')).to_contain_text("Mika")
+        pending_roll = []
+        host.route("**/actions", lambda route: pending_roll.append(route))
         roll.click()
         expect(host.locator(".tumble")).to_be_visible()
+        expect(roll).to_be_disabled()
+        pending_roll.pop().continue_()
+        host.unroute("**/actions")
         expect(guest.get_by_text("Red rolled", exact=False)).to_be_visible()
         host.reload()
         expect(saved).to_contain_text("Started")
