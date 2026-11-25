@@ -42,7 +42,7 @@ def test_local_and_restart(client):
         assert state["ready"] and len(state["pawns"]) == 16
 
 
-def test_online_disconnect_expires_even_if_other_seat_stays(client, monkeypatch):
+def test_disconnected_turn_is_skipped_without_substitutes(client, monkeypatch):
     now = [1000]
     monkeypatch.setattr("app.main.time", type("Clock", (), {"time": lambda: now[0]}))
     session = client.post("/rooms", json={"players": 2, "mode": "online"}).json()
@@ -52,7 +52,7 @@ def test_online_disconnect_expires_even_if_other_seat_stays(client, monkeypatch)
     now[0] += 299
     assert client.get(path, headers=headers).status_code == 200
     now[0] += 1
-    assert client.get(path, headers=headers).status_code == 410
+    assert client.get(path, headers=headers).json()["current"] == "yellow"
 
 
 def test_end_room(client):
@@ -61,6 +61,8 @@ def test_end_room(client):
     headers = {"Authorization": "Bearer " + session["token"]}
     assert client.post(path + "/leave").status_code == 401
     assert client.post(path + "/leave", headers=headers).status_code == 200
+    assert client.get(path, headers=headers).status_code == 200
+    assert client.post(path + "/end", headers=headers).status_code == 200
     assert client.get(path, headers=headers).status_code == 404
 
 
@@ -73,15 +75,19 @@ def test_substitute_rolls_moves_and_returns_seat(client, monkeypatch):
     red = {"Authorization": "Bearer " + host["token"]}
     yellow = {"Authorization": "Bearer " + client.post(url + "/join").json()["token"]}
     now[0] += 299
-    assert client.get(url, headers=yellow).json()["computers"] == []
+    assert client.get(url, headers=yellow).json()["current"] == "red"
     now[0] += 1
     rolled = client.get(url, headers=yellow).json()
-    assert rolled["computers"] == ["red"] and rolled["phase"] == "move"
+    assert "computers" not in rolled and "substitutes" not in rolled
+    assert rolled["phase"] == "move"
     assert client.get(url, headers=yellow).json()["revision"] == rolled["revision"]
     now[0] += 2
     moved = client.get(url, headers=yellow).json()
     assert any(p["step"] == 0 for p in moved["pawns"])
     assert client.get(url, headers=red).json()["computers"] == []
     assert client.post(url + "/leave", headers=red).json() == {"ended": False}
-    assert client.get(url, headers=red).status_code == 403
-    assert client.get(url, headers=yellow).json()["computers"] == ["red"]
+    assert client.post(url + "/end", headers=yellow).status_code == 403
+    assert client.get(url, headers=yellow).json()["phase"] == "roll"
+    assert client.get(url, headers=red).json()["can_end"]
+    assert client.post(url + "/end", headers=red).status_code == 200
+    assert client.get(url, headers=yellow).status_code == 404

@@ -61,16 +61,15 @@ def load(db, room, *, lock=False):
     if row is None:
         raise HTTPException(404, "Room not found.")
     game = Game(**row["state"])
-    if row["mode"] == "online" and game.phase != "won" and game.last_seen:
-        if not game.substitutes and time.time() - min(game.last_seen.values()) >= 300:
-            raise HTTPException(410, "The online room expired after a player disconnected.")
     return row, game, row["seats"]
 
 
 def snapshot(row, game, seats, key):
     if key not in seats:
         raise HTTPException(403, "This seat belongs to another session.")
-    return dict(**game.view(), substitutes=game.substitutes, computers=game.computers, room=row["id"], mode=row["mode"], revision=row["revision"],
+    host = seats[0] == key
+    private = {"computers": game.computers, "substitutes": game.substitutes} if host else {}
+    return dict(**game.view(), **private, can_end=host, room=row["id"], mode=row["mode"], revision=row["revision"],
                 seat=game.colors[seats.index(key)], joined=len(seats),
                 ready=row["mode"] == "local" or len(seats) == len(game.colors))
 
@@ -149,6 +148,9 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
                         game.move(secrets.choice(game.legal()))
                     game.last_bot_action = now
                     changed = True
+            elif result["ready"] and now - game.last_seen.get(game.current, now) >= 300:
+                game.pass_turn()
+                changed = True
             if heartbeat or changed:
                 row = db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+%s WHERE id=%s RETURNING *",
                                  (Jsonb(game.dump()), int(changed), room)).fetchone()
@@ -161,16 +163,18 @@ def leave(room: str, key: Annotated[str, Depends(credential)]):
     with database() as db:
         row, game, seats = load(db, room, lock=True)
         state = snapshot(row, game, seats, key)
-        if game.substitutes and game.phase != "won":
-            seat = state["seat"]
-            seats[seats.index(key)] = None
-            if any(seats):
-                game.last_seen[seat] = 0
-                if seat not in game.computers:
-                    game.computers.append(seat)
-                db.execute("UPDATE ludo.rooms SET state=%s, seats=%s, revision=revision+1 WHERE id=%s",
-                           (Jsonb(game.dump()), Jsonb(seats), room))
-                return {"ended": False}
+        if row["mode"] == "online":
+            game.last_seen[state["seat"]] = time.time()
+            db.execute("UPDATE ludo.rooms SET state=%s WHERE id=%s", (Jsonb(game.dump()), room))
+    return {"ended": False}
+
+
+@app.post("/rooms/{room}/end")
+def end(room: str, key: Annotated[str, Depends(credential)]):
+    with database() as db:
+        row, game, seats = load(db, room, lock=True)
+        if not snapshot(row, game, seats, key)["can_end"]:
+            raise HTTPException(403, "Only the room creator can end the game.")
         db.execute("DELETE FROM ludo.rooms WHERE id=%s", (room,))
     return {"ended": True}
 

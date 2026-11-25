@@ -3,8 +3,9 @@ import type { Pawn, PawnColor } from './types'
 export interface Session { room: string; token: string }
 export interface Profile { name: string; avatar: string }
 export interface Match {
-  substitutes: boolean
-  computers: PawnColor[]
+  can_end: boolean
+  substitutes?: boolean
+  computers?: PawnColor[]
   profiles: Record<string, Profile>
   roll_number: number
   roller: PawnColor | null

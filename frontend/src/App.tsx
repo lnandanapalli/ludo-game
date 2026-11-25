@@ -80,10 +80,15 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
       <button type="button" className="quiet" aria-label="Game settings" popoverTarget="game-settings">•••</button>
       <div id="game-settings" popover="auto"><SoundToggle/>
         <button type="button" className="quiet" onClick={async () => {
-          if (!window.confirm(game?.substitutes ? "Leave your seat to the computer?" : "End this game for all players?")) return
-          try { await request(path + '/leave', session.token, {}); forget(game?.substitutes ? 'You left the room.' : 'Game ended.') }
-          catch (e) { if (unavailable(e)) forget('Game ended.'); else setError((e as Error).message) }
-        }}>{game?.substitutes ? 'Leave game' : 'End game'}</button>
+          if (!window.confirm("Leave this game? You can resume from the lobby.")) return
+          try { await request(path + '/leave', session.token, {}); leave() }
+          catch (e) { if (unavailable(e)) forget('Room unavailable.'); else setError((e as Error).message) }
+        }}>Leave game</button>
+        {game?.can_end && <button type="button" className="quiet" onClick={async () => {
+          if (!window.confirm("End this game for everyone? It cannot be resumed.")) return
+          try { await request(path + '/end', session.token, {}); forget('Game ended.') }
+          catch (e) { setError((e as Error).message) }
+        }}>End game</button>}
       </div>
     </div></header>
     {error && <p role="alert">{error}</p>}
@@ -97,7 +102,7 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
         return <div key={color} className="seat-card" data-seat={color} data-active={game.ready && active === color}>
           <span className="portrait">{portraits[profile.avatar]}</span>
           <strong>{profile.name.trim() || color}</strong>
-          {game.computers.includes(color) && <small>CPU</small>}
+          {game.computers?.includes(color) && <small>CPU</small>}
           <span className="home-dots" aria-label={game.pawns.filter(p => p.color === color && p.step === 56).length + ' home'}>
             {game.pawns.filter(p => p.color === color).map(p => <i key={p.id} data-home={p.step === 56}/>)}</span>
         </div>
