@@ -24,6 +24,9 @@ export interface Match {
   legal: number[]
   message: string
   pawns: (Pawn & { step: number })[]
+  presence: Partial<Record<PawnColor, 'online' | 'offline' | 'left' | 'computer'>>
+  turn_seconds: number
+  turn_remaining: number | null
 }
 
 const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')

@@ -42,19 +42,23 @@ def test_local_and_restart(client):
         assert state["ready"] and len(state["pawns"]) == 16
 
 
-def test_disconnected_turn_is_skipped_without_substitutes(client, monkeypatch):
+def test_turn_timer_plays_for_a_slow_seat(client, monkeypatch):
     now = [1000]
     monkeypatch.setattr("app.main.time", type("Clock", (), {"time": lambda: now[0]}))
+    monkeypatch.setattr("app.main.secrets.randbelow", lambda _: 5)
     session = client.post("/rooms", json={"players": 2, "mode": "online"}).json()
     path = "/rooms/" + session["room"]
     guest = client.post(path + "/join").json()
     headers = {"Authorization": "Bearer " + guest["token"]}
-    now[0] += 299
-    assert client.get(path, headers=headers).status_code == 200
+    now[0] += 14
+    waiting = client.get(path, headers=headers).json()
+    assert waiting["roll_number"] == 0 and waiting["turn_remaining"] == 1
     now[0] += 1
-    skipped = client.get(path, headers=headers).json()
-    assert skipped["current"] == "yellow"
-    assert skipped["message"] == "Red is away; turn skipped."
+    played = client.get(path, headers=headers).json()
+    # The six is rolled and, with four equivalent choices, a pawn is moved for red.
+    assert played["roll_number"] == 1 and played["message"].startswith("Time's up. Red rolled 6.")
+    assert played["last_move"]["pawn"].startswith("red-") and played["current"] == "red"
+    assert played["turn_remaining"] == 15 and played["presence"] == {"red": "offline", "yellow": "online"}
 
 
 def test_end_room(client):
@@ -68,7 +72,7 @@ def test_end_room(client):
     assert client.get(path, headers=headers).status_code == 404
 
 
-def test_substitute_rolls_moves_and_returns_seat(client, monkeypatch):
+def test_presence_and_substitute_play_without_waiting(client, monkeypatch):
     now = [1000]
     monkeypatch.setattr("app.main.time", type("Clock", (), {"time": lambda: now[0]}))
     monkeypatch.setattr("app.main.secrets.randbelow", lambda _: 5)
@@ -76,20 +80,27 @@ def test_substitute_rolls_moves_and_returns_seat(client, monkeypatch):
     url = "/rooms/" + host["room"]
     red = {"Authorization": "Bearer " + host["token"]}
     yellow = {"Authorization": "Bearer " + client.post(url + "/join").json()["token"]}
+    assert client.get(url, headers=yellow).json()["presence"] == {"red": "online", "yellow": "online"}
+    assert client.post(url + "/leave", headers=red).json() == {"ended": False}
+    assert client.get(url, headers=yellow).json()["presence"]["red"] == "left"
+    assert client.get(url, headers=red).json()["presence"]["red"] == "online"
+    client.post(url + "/leave", headers=red)
     now[0] += 299
-    assert client.get(url, headers=yellow).json()["current"] == "red"
+    timed_out = client.get(url, headers=yellow).json()
+    assert timed_out["presence"]["red"] == "left" and timed_out["message"].startswith("Time's up.")
     now[0] += 1
     rolled = client.get(url, headers=yellow).json()
     assert "computers" not in rolled and "substitutes" not in rolled
-    assert rolled["phase"] == "move"
+    assert rolled["presence"]["red"] == "computer" and rolled["turn_remaining"] is None
+    # The substitute rolls at once instead of waiting out the turn timer.
+    assert rolled["phase"] == "move" and rolled["roll_number"] == timed_out["roll_number"] + 1
     assert client.get(url, headers=yellow).json()["revision"] == rolled["revision"]
-    now[0] += 2
+    now[0] += 1
     moved = client.get(url, headers=yellow).json()
-    assert any(p["step"] == 0 for p in moved["pawns"])
-    assert client.get(url, headers=red).json()["computers"] == []
-    assert client.post(url + "/leave", headers=red).json() == {"ended": False}
+    assert moved["last_move"]["roll"] == rolled["roll_number"]
+    returned = client.get(url, headers=red).json()
+    assert returned["computers"] == [] and returned["presence"]["red"] == "online"
     assert client.post(url + "/end", headers=yellow).status_code == 403
-    assert client.get(url, headers=yellow).json()["phase"] == "roll"
-    assert client.get(url, headers=red).json()["can_end"]
+    assert returned["can_end"]
     assert client.post(url + "/end", headers=red).status_code == 200
     assert client.get(url, headers=yellow).status_code == 404

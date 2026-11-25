@@ -48,6 +48,8 @@ class Game:
     last_move: dict | None = None
     started_at: float | None = None
     roller: str | None = None
+    turn_started: float | None = None
+    left: list[str] = field(default_factory=list)
 
     @classmethod
     def new(cls, count):

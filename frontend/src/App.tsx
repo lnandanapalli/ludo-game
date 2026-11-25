@@ -27,6 +27,7 @@ function unavailable(e: unknown) {
 }
 
 const AUTO_MOVE_RESULT_HOLD_MS = 1000
+const presenceLabels = { offline: 'Offline', left: 'Left', computer: 'CPU' } as const
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const travelDuration = (path: [number, number][]) => reducedMotion() ? 0 : Math.max(250, (path.length - 1) * 165)
 
@@ -53,6 +54,7 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
   }, [travel])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [timer, setTimer] = useState<{ revision: number; remaining: number; total: number } | null>(null)
   const latest = useRef<Match | null>(null)
   const [roller, setRoller] = useState<Match['roller']>(null)
   const rolling = roller !== null
@@ -61,7 +63,16 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
   const path = '/rooms/' + session.room
   const accept = useCallback((next: Match) => {
     const old = latest.current
-    if (old && next.revision <= old.revision) return
+    if (old && next.revision < old.revision) return
+    // Restart the countdown only when the turn changes, not on every poll.
+    setTimer(t => next.turn_remaining === null ? null
+      : t?.revision === next.revision ? t : { revision: next.revision, remaining: next.turn_remaining, total: next.turn_seconds })
+    if (old && next.revision === old.revision) {
+      // Same board; only live details such as player presence can differ.
+      latest.current = next
+      setGame(next)
+      return
+    }
     let rollDelay = 0
     if (old && next.roll_number > old.roll_number) {
       const now = performance.now()
@@ -150,10 +161,18 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
       <div className="play-space"><div className="arena" data-count={game.colors.length}>
       {game.colors.map(color => {
         const profile = game.profiles[color] || defaultProfile(color)
-        return <div key={color} className="seat-card" data-seat={color} data-active={game.ready && active === color}>
-          <span className="portrait">{portraits[profile.avatar]}</span>
+        const status = game.presence[color]
+        return <div key={color} className="seat-card" data-seat={color} data-active={game.ready && active === color} data-presence={status}>
+          <span className="portrait">{portraits[profile.avatar]}
+            {timer && game.ready && game.phase !== 'won' && color === game.current &&
+              <svg key={timer.revision} className="turn-timer" viewBox="0 0 44 44" aria-hidden="true">
+                <circle cx="22" cy="22" r="20" pathLength="100" style={{
+                  animationDuration: timer.remaining + 's', '--spent': (1 - timer.remaining / timer.total) * 100,
+                } as React.CSSProperties} />
+              </svg>}
+          </span>
+          {status && status !== 'online' && <small className="presence">{presenceLabels[status]}</small>}
           <strong>{profile.name.trim() || color}</strong>
-          {game.computers?.includes(color) && <small>CPU</small>}
           <span className="home-dots" aria-label={game.pawns.filter(p => p.color === color && p.step === 56).length + ' home'}>
             {game.pawns.filter(p => p.color === color).map(p => <i key={p.id} data-home={p.step === 56}/>)}</span>
         </div>

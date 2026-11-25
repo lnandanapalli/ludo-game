@@ -43,6 +43,9 @@ def test_online_and_local():
         expect(roll).to_be_enabled()
         expect(guest.get_by_role("button", name="Roll die")).to_be_disabled()
         for page in (host, guest):
+            expect(page.locator('.seat-card[data-seat="red"] .turn-timer')).to_be_visible()
+            expect(page.locator(".presence")).to_have_count(0)
+        for page in (host, guest):
             assert page.locator("table.ludo-board td").count() == 225
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
             board = page.locator("table.ludo-board").bounding_box()
@@ -68,6 +71,7 @@ def test_online_and_local():
         settings.click()
         host.once("dialog", lambda dialog: dialog.accept())
         host.get_by_role("button", name="Leave game").click()
+        expect(guest.locator('.seat-card[data-seat="red"] .presence')).to_have_text("Left")
         host.get_by_role("button", name="One device").click()
         host.get_by_text("Pass and play").click()
         roll = host.get_by_role("button", name="Roll die")

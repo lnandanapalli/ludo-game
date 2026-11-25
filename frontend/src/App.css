@@ -80,6 +80,14 @@ input:not([type=checkbox]) { display: block; width: 100%; padding: .75rem; margi
 .seat-card strong { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .8rem; }
 .portrait { display: grid; place-items: center; width: 39px; aspect-ratio: 1; border-radius: 50%; font-size: 25px; background: #38464c; border: 2px solid var(--seat); }
 .seat-card[data-active=true] .portrait { animation: beacon 1.15s ease-in-out infinite alternate; }
+.portrait { position: relative; }
+.seat-card:is([data-presence=offline],[data-presence=left]) .portrait { filter: grayscale(1); opacity: .55; }
+.presence { position: absolute; top: 28px; left: 50%; transform: translateX(-50%); padding: 0 5px; border-radius: 6px;
+  font-size: .6rem; font-weight: 700; line-height: 1.5; color: #f4f7f5; background: #1b2a2b; border: 1px solid var(--seat); white-space: nowrap; }
+.turn-timer { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); transform: rotate(-90deg); pointer-events: none; }
+.turn-timer circle { fill: none; stroke: var(--seat); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 100;
+  animation: turn-drain linear forwards; }
+@keyframes turn-drain { from { stroke-dashoffset: var(--spent); } to { stroke-dashoffset: 100; } }
 .home-dots { display: flex; gap: 3px; }
 .home-dots i { width: 5px; height: 5px; border-radius: 50%; background: #788687; }
 .home-dots [data-home=true] { background: var(--seat); }

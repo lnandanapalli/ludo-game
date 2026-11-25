@@ -64,14 +64,49 @@ def load(db, room, *, lock=False):
     return row, game, row["seats"]
 
 
+TURN_SECONDS = 15      # Time to roll or move before the server plays for the seat.
+HEARTBEAT_SECONDS = 5  # How often a polling seat refreshes its last_seen time.
+OFFLINE_SECONDS = 15   # A seat without a heartbeat for this long shows as offline.
+AWAY_SECONDS = 300     # A seat away this long is played by a computer substitute.
+
+
+def presence(row, game, seats, now):
+    if row["mode"] != "online":
+        return {}
+    status = {}
+    for color in game.colors[:len(seats)]:
+        if color in game.computers:
+            status[color] = "computer"
+        elif color in game.left:
+            status[color] = "left"
+        elif now - game.last_seen.get(color, now) >= OFFLINE_SECONDS:
+            status[color] = "offline"
+        else:
+            status[color] = "online"
+    return status
+
+
 def snapshot(row, game, seats, key):
     if key not in seats:
         raise HTTPException(403, "This seat belongs to another session.")
+    now = time.time()
     host = seats[0] == key
+    ready = row["mode"] == "local" or len(seats) == len(game.colors)
+    timed = (row["mode"] == "online" and ready and game.phase != "won"
+             and game.turn_started is not None and game.current not in game.computers)
     private = {"computers": game.computers, "substitutes": game.substitutes} if host else {}
     return dict(**game.view(), **private, can_end=host, room=row["id"], mode=row["mode"], revision=row["revision"],
-                seat=game.colors[seats.index(key)], joined=len(seats),
-                ready=row["mode"] == "local" or len(seats) == len(game.colors))
+                seat=game.colors[seats.index(key)], joined=len(seats), ready=ready,
+                presence=presence(row, game, seats, now), turn_seconds=TURN_SECONDS,
+                turn_remaining=max(0.0, game.turn_started + TURN_SECONDS - now) if timed else None)
+
+
+def play_for(game):
+    """Take the current seat's next step: roll, or move a random legal pawn."""
+    if game.phase == "roll":
+        game.roll(secrets.randbelow(6) + 1)
+    else:
+        game.move(secrets.choice(game.legal()))
 
 
 @app.middleware("http")
@@ -121,7 +156,7 @@ def join(room: str, setup: JoinSetup | None = None):
         game.auto_move[game.colors[len(seats)]] = bool(setup and setup.auto_move)
         seats.append(digest(token))
         if len(seats) == len(game.colors):
-            game.started_at = time.time()
+            game.started_at = game.turn_started = time.time()
         db.execute("UPDATE ludo.rooms SET seats=%s, state=%s, revision=revision+1 WHERE id=%s",
                    (Jsonb(seats), Jsonb(game.dump()), room))
     return {"room": room, "token": token}
@@ -135,28 +170,40 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
         if not preview and row["mode"] == "online" and game.phase != "won":
             now = time.time()
             seat = result["seat"]
-            heartbeat = now - game.last_seen.get(seat, 0) >= 10
-            if heartbeat:
+            saved = changed = False
+            if seat in game.left:
+                game.left.remove(seat)
+                saved = True
+            if now - game.last_seen.get(seat, 0) >= HEARTBEAT_SECONDS:
                 for color in game.colors[:len(seats)]:
                     game.last_seen.setdefault(color, now)
                 game.last_seen[seat] = now
-            changed = False
+                saved = True
+            if result["ready"] and game.turn_started is None:
+                game.turn_started = now
+                saved = True
             if game.substitutes:
-                computers = [c for c in game.colors[:len(seats)] if now - game.last_seen[c] >= 300]
+                computers = [c for c in game.colors[:len(seats)] if now - game.last_seen[c] >= AWAY_SECONDS]
                 changed = computers != game.computers
                 game.computers = computers
-                if result["ready"] and game.current in computers and now - game.last_bot_action >= 1:
-                    if game.phase == "roll":
-                        game.roll(secrets.randbelow(6) + 1)
-                    else:
-                        game.move(secrets.choice(game.legal()))
-                    game.last_bot_action = now
+            if result["ready"]:
+                if game.current in game.computers:
+                    if now - game.last_bot_action >= 1:
+                        play_for(game)
+                        game.last_bot_action = now
+                        game.turn_started = now
+                        changed = True
+                elif now - game.turn_started >= TURN_SECONDS:
+                    color = game.current
+                    play_for(game)
+                    if game.phase == "move" and game.current == color:
+                        rolled = game.message
+                        play_for(game)
+                        game.message = f"{rolled} {game.message}"
+                    game.message = "Time's up. " + game.message
+                    game.turn_started = now
                     changed = True
-            elif result["ready"] and now - game.last_seen.get(game.current, now) >= 300:
-                game.message = f"{game.current.title()} is away; turn skipped."
-                game.pass_turn()
-                changed = True
-            if heartbeat or changed:
+            if saved or changed:
                 row = db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+%s WHERE id=%s RETURNING *",
                                  (Jsonb(game.dump()), int(changed), room)).fetchone()
                 result = snapshot(row, game, seats, key)
@@ -170,6 +217,8 @@ def leave(room: str, key: Annotated[str, Depends(credential)]):
         state = snapshot(row, game, seats, key)
         if row["mode"] == "online":
             game.last_seen[state["seat"]] = time.time()
+            if state["seat"] not in game.left:
+                game.left.append(state["seat"])
             db.execute("UPDATE ludo.rooms SET state=%s WHERE id=%s", (Jsonb(game.dump()), room))
     return {"ended": False}
 
@@ -202,5 +251,10 @@ def act(room: str, command: Command, key: Annotated[str, Depends(credential)]):
                 game.move(command.pawn)
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
+        game.turn_started = time.time()
+        if row["mode"] == "online":
+            game.last_seen[state["seat"]] = game.turn_started
+            if state["seat"] in game.left:
+                game.left.remove(state["seat"])
         db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+1 WHERE id=%s", (Jsonb(game.dump()), room))
         return snapshot(*load(db, room), key)
