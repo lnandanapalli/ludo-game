@@ -110,3 +110,10 @@ input:not([type=checkbox]) { display: block; width: 100%; padding: .75rem; margi
   box-shadow: 0 8px 24px #07141466;
 }
 #game-settings button, .preference + .primary { margin-top: .65rem; }
+
+.saved-match { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .65rem; margin: .8rem 0; padding: .85rem; border-radius: 12px; background: #172a2b; }
+.saved-match p { margin: .25rem 0; overflow-wrap: anywhere; }
+.saved-match small { color: #bacbc8; }
+.saved-actions { display: flex; align-items: center; }
+.saved-actions button { padding: .35rem .65rem; }
+.saved-actions button:last-child { background: transparent; border: 0; min-width: 44px; }

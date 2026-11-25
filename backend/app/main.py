@@ -96,6 +96,8 @@ def create(setup: Setup):
     if setup.mode == "online":
         game.substitutes = setup.substitutes
         game.last_seen[game.colors[0]] = time.time()
+    else:
+        game.started_at = time.time()
     eligible = game.colors if setup.mode == "local" else game.colors[:1]
     game.profiles = {c: setup.profiles[c].model_dump() for c in eligible if c in setup.profiles}
     game.auto_move = {c: setup.auto_move.get(c, False) for c in eligible}
@@ -118,6 +120,8 @@ def join(room: str, setup: JoinSetup | None = None):
             game.profiles[game.colors[len(seats)]] = setup.profile.model_dump()
         game.auto_move[game.colors[len(seats)]] = bool(setup and setup.auto_move)
         seats.append(digest(token))
+        if len(seats) == len(game.colors):
+            game.started_at = time.time()
         db.execute("UPDATE ludo.rooms SET seats=%s, state=%s, revision=revision+1 WHERE id=%s",
                    (Jsonb(seats), Jsonb(game.dump()), room))
     return {"room": room, "token": token}

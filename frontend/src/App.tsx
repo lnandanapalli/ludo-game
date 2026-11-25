@@ -129,7 +129,8 @@ export default function App() {
   const [preferences, setPreferences] = useState<Record<string, boolean>>({})
   const [guestAuto, setGuestAuto] = useState(true)
   const [substitutes, setSubstitutes] = useState(true)
-  const [mode, setMode] = useState<'local' | 'online'>('local')
+  const [mode, setMode] = useState<Match['mode']>(invite ? 'online' : session?.mode || 'local')
+  const [preview, setPreview] = useState<Match | null>(null)
   const [players, setPlayers] = useState(2)
   const [room, setRoom] = useState(invite)
   const [busy, setBusy] = useState(false)
@@ -137,6 +138,7 @@ export default function App() {
   const [lobby, setLobby] = useState(true)
   const forget = useCallback((message: string) => {
     localStorage.removeItem(storageKey)
+    setPreview(null)
     setSession(null)
     setLobby(true)
     setError(message)
@@ -145,8 +147,10 @@ export default function App() {
     if (!session || !lobby) return
     let active = true
     request<Match>('/rooms/' + session.room + '?preview=true', session.token).then(match => {
-      if (active && match.phase === 'won') forget('Your previous game finished.')
-    }).catch(e => { if (active && unavailable(e)) forget(e.message) })
+      if (!active) return
+      if (match.phase === 'won') forget('Your previous game finished.')
+      else setPreview(match)
+    }).catch(e => { if (!active) return; if (unavailable(e)) forget(e.message); else setError('Could not check your saved game. Refresh to retry.') })
     return () => { active = false }
   }, [session, lobby, forget])
   async function enter(mode: 'local' | 'online' | 'join') {
@@ -156,6 +160,9 @@ export default function App() {
       const seat = mode === 'join'
         ? await request<Session>('/rooms/' + encodeURIComponent(room.trim().toLowerCase()) + '/join', undefined, { profile: guestProfile, auto_move: guestAuto })
         : await request<Session>('/rooms', undefined, { mode, players, profiles, substitutes: mode === 'online' && substitutes, auto_move: Object.fromEntries(colors.map(c => [c, preferences[c] ?? true])) })
+      seat.mode = mode === 'join' ? 'online' : mode
+      setMode(seat.mode)
+      setPreview(null)
       localStorage.setItem(storageKey, JSON.stringify(seat))
       history.replaceState(null, '', location.pathname)
       setSession(seat)
@@ -166,13 +173,25 @@ export default function App() {
   if (session && !lobby) return <Play key={session.room} session={session} leave={() => setLobby(true)} forget={forget} />
   const colors = players === 2 ? ['red', 'yellow'] : ['red', 'green', 'yellow', 'blue'].slice(0, players)
   return <main className="lobby"><header><Wordmark/></header>
-    {session && <div><button onClick={() => setLobby(false)}>Resume game</button>{' '}
-      <button className="quiet" onClick={() => { if (window.confirm("Remove the saved seat from this browser?")) forget('') }}>Forget saved seat</button></div>}
     <div className="setup-layout"><section className="panel"><h2>Start a game</h2>
       <div className="segmented" aria-label="Game mode">
         <button aria-pressed={mode === 'local'} onClick={() => setMode('local')}>One device</button>
         <button aria-pressed={mode === 'online'} onClick={() => setMode('online')}>Online</button>
       </div>
+      {session && preview?.mode === mode && <section className="saved-match" aria-label="Saved game">
+        <div><strong>{mode === 'local' ? 'Saved game on this device' : 'Room ' + preview.room}</strong>
+          <p>{preview.colors.slice(0, preview.mode === 'local' ? preview.colors.length : preview.joined)
+            .map(c => preview.profiles[c]?.name || c[0].toUpperCase() + c.slice(1)).join(' · ')}</p>
+          <small>{preview.ready ? <>
+            {preview.started_at ? 'Started ' + new Date(preview.started_at * 1000).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}) : 'Start time unavailable'}
+            {' · '}{preview.profiles[preview.current]?.name || preview.current}’s turn
+          </> : 'Waiting for players · ' + preview.joined + '/' + preview.colors.length}</small>
+        </div>
+        <div className="saved-actions"><button onClick={() => setLobby(false)}>Resume game</button>
+          <button aria-label="Dismiss saved game" title="Dismiss saved game" onClick={() => {
+            if (window.confirm('Remove this saved game from this browser?')) forget('')
+          }}>×</button></div>
+      </section>}
       <fieldset><legend>Players</legend><div className="numbers">{[2,3,4].map(n =>
         <button key={n} aria-pressed={n === players} onClick={() => setPlayers(n)}>{n}</button>)}</div></fieldset>
       {(mode === 'local' ? colors : ['red']).map(c => <ProfilePicker key={c} seat={c}

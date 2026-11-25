@@ -1,8 +1,9 @@
 import type { Pawn, PawnColor } from './types'
 
-export interface Session { room: string; token: string }
+export interface Session { room: string; token: string; mode?: Match['mode'] }
 export interface Profile { name: string; avatar: string }
 export interface Match {
+  started_at?: number | null
   can_end: boolean
   substitutes?: boolean
   computers?: PawnColor[]

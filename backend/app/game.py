@@ -45,6 +45,7 @@ class Game:
     last_seen: dict[str, float] = field(default_factory=dict)
     profiles: dict = field(default_factory=dict)
     roll_number: int = 0
+    started_at: float | None = None
     roller: str | None = None
 
     @classmethod
@@ -126,7 +127,7 @@ class Game:
             for i, step in enumerate(pieces):
                 row, col = position(color, i, step)
                 pawns.append(dict(id=f"{color}-{i+1}", color=color, row=row, col=col, step=step))
-        return dict(profiles=self.profiles, roll_number=self.roll_number, roller=self.roller, current=self.current, phase=self.phase, die=self.die, message=self.message,
+        return dict(started_at=self.started_at, profiles=self.profiles, roll_number=self.roll_number, roller=self.roller, current=self.current, phase=self.phase, die=self.die, message=self.message,
                     colors=self.colors, pawns=pawns, legal=self.legal())
 
     def dump(self):
