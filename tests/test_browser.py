@@ -72,6 +72,10 @@ def test_online_and_local():
             if host.locator(".board-choice").count():
                 break
         host.locator(".board-choice").first.click()
+        traveler = host.locator(".traveling-pawn")
+        expect(traveler).to_be_visible()
+        expect(roll).to_be_disabled()
+        expect(traveler).to_be_hidden()
         expect(host.get_by_text("moved pawn", exact=False)).to_be_visible()
         browser.close()
 
