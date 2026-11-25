@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { PAWN_COLOR_HEX } from './types'
 import BoardGrid from './BoardGrid'
 import { ApiError, request, type Match, type Profile, type Session } from './api'
 import Die from './Die'
@@ -27,6 +28,25 @@ function unavailable(e: unknown) {
 
 function Play({ session, leave, forget }: { session: Session; leave: () => void; forget: (message: string) => void }) {
   const [game, setGame] = useState<Match | null>(null)
+  const [travel, setTravel] = useState<{ move: NonNullable<Match['last_move']>; before: Match; delay: number } | null>(null)
+  const traveler = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!travel || !traveler.current) return
+    const path = travel.move.path
+    const frames: Keyframe[] = []
+    path.forEach(([row, col], i) => {
+      if (i) {
+        const [r, c] = path[i - 1]
+        frames.push({ transform: `translate(${(c + col) * 50}%, ${(r + row) * 50 - 18}%)`, offset: (i - .5) / (path.length - 1) })
+      }
+      frames.push({ transform: `translate(${col * 100}%, ${row * 100}%)`, offset: i / (path.length - 1) })
+    })
+    const movement = traveler.current.animate(frames, {
+      duration: Math.max(250, (path.length - 1) * 165), delay: travel.delay, fill: 'both',
+    })
+    movement.onfinish = () => setTravel(null)
+    return () => movement.cancel()
+  }, [travel])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const latest = useRef<Match | null>(null)
@@ -41,6 +61,13 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
       setRolling(true)
       window.clearTimeout(animation.current)
       animation.current = window.setTimeout(() => setRolling(false), 950)
+    }
+    const move = next.last_move
+    if (old && move && move.roll !== old.last_move?.roll) {
+      const pawn = old.pawns.find(p => p.id === move.pawn)
+      const [row, col] = move.path[0]
+      setTravel(pawn?.row === row && pawn.col === col && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? { move, before: old, delay: next.roll_number > old.roll_number ? 950 : 0 } : null)
     }
     latest.current = next
     setGame(next)
@@ -64,7 +91,7 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
   }, [accept, forget, path, session.token])
 
   async function act(action: 'roll' | 'move', pawn?: number) {
-    if (!game || busy) return
+    if (!game || busy || travel) return
     setBusy(true)
     setError('')
     try {
@@ -107,16 +134,20 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
             {game.pawns.filter(p => p.color === color).map(p => <i key={p.id} data-home={p.step === 56}/>)}</span>
         </div>
       })}
-      <div className="board-frame"><BoardGrid pawns={game.pawns} moves={ownTurn && !busy && !rolling
+      <div className="board-frame"><BoardGrid pawns={travel ? travel.before.pawns.filter(p => p.id !== travel.move.pawn) : game.pawns} moves={!travel && ownTurn && !busy && !rolling
         ? new Map(game.legal.map(i => [game.current + '-' + (i + 1), () => act('move', i)]))
-        : undefined} /></div>
+        : undefined} />
+        {travel && <div className="traveling-pawn" ref={traveler} aria-hidden="true"
+          style={{color: PAWN_COLOR_HEX[travel.before.pawns.find(p => p.id === travel.move.pawn)!.color]}}>
+          <span className="pawn-icon" />
+        </div>}</div>
       <div className="dice-dock controls" data-seat={active}>
         <button className="roll" aria-label="Roll die" title="Roll die"
-          disabled={!game.ready || !ownTurn || busy || rolling || game.phase !== 'roll'} onClick={() => act('roll')}>
+          disabled={!!travel || !game.ready || !ownTurn || busy || rolling || game.phase !== 'roll'} onClick={() => act('roll')}>
           <span key={game.roll_number} className={rolling ? 'tumble' : 'rest'}><Die value={game.die} /></span>
         </button>
       </div></div></div>
-      {game.phase === 'won' && <h2 className="victory">🏆 {game.profiles[game.current]?.name || game.current} wins!</h2>}
+      {!travel && game.phase === 'won' && <h2 className="victory">🏆 {game.profiles[game.current]?.name || game.current} wins!</h2>}
       <span className="sr-only" aria-live="polite">{game.message}</span>
     </>}
   </main>

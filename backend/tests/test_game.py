@@ -93,3 +93,11 @@ def test_auto_move_waits_for_choice_and_respects_other_player():
     game.pieces["yellow"][2] = 1
     game.roll(1)
     assert game.legal() == [2]
+
+
+def test_move_path_follows_each_square_through_home_turn():
+    game = Game.new(2)
+    game.pieces["red"][0] = 50
+    game.roll(6)
+    game.move(0)
+    assert game.view()["last_move"]["path"] == [position("red", 0, i) for i in range(50, 57)]

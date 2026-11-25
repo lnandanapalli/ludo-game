@@ -45,6 +45,7 @@ class Game:
     last_seen: dict[str, float] = field(default_factory=dict)
     profiles: dict = field(default_factory=dict)
     roll_number: int = 0
+    last_move: dict | None = None
     started_at: float | None = None
     roller: str | None = None
 
@@ -96,7 +97,10 @@ class Game:
             raise ValueError("Choose a highlighted pawn.")
         color = self.current
         pieces = self.pieces[color]
+        start = pieces[pawn]
         pieces[pawn] = 0 if pieces[pawn] == -1 else pieces[pawn] + self.die
+        self.last_move = dict(roll=self.roll_number, pawn=f"{color}-{pawn+1}",
+                              path=[position(color, pawn, i) for i in range(start, pieces[pawn]+1)])
         destination = position(color, pawn, pieces[pawn])
         captured = 0
         if pieces[pawn] <= 50 and destination not in SAFE:
@@ -127,7 +131,7 @@ class Game:
             for i, step in enumerate(pieces):
                 row, col = position(color, i, step)
                 pawns.append(dict(id=f"{color}-{i+1}", color=color, row=row, col=col, step=step))
-        return dict(started_at=self.started_at, profiles=self.profiles, roll_number=self.roll_number, roller=self.roller, current=self.current, phase=self.phase, die=self.die, message=self.message,
+        return dict(last_move=self.last_move, started_at=self.started_at, profiles=self.profiles, roll_number=self.roll_number, roller=self.roller, current=self.current, phase=self.phase, die=self.die, message=self.message,
                     colors=self.colors, pawns=pawns, legal=self.legal())
 
     def dump(self):
