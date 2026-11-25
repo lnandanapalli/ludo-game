@@ -32,12 +32,7 @@
 .cell--lane[data-color="yellow"] { background-color: #fff201; }
 .cell--lane[data-color="blue"]   { background-color: #00aeee; }
 
-.cell--center[data-color="red"]    { background-color: #ed1b24; }
-.cell--center[data-color="green"]  { background-color: #39b54a; }
-.cell--center[data-color="yellow"] { background-color: #fff201; }
-.cell--center[data-color="blue"]   { background-color: #00aeee; }
-
-.cell--empty { background-color: #ddd; }
+.cell--center { border: 0; }
 .cell--path  { background-color: white; }
 
 .pawn-layer {

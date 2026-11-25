@@ -4,6 +4,9 @@
   max-width: 600px;
   margin: 0 auto;
   table-layout: fixed;
+  /* Three of the fifteen rows and columns form the four home triangles. */
+  background: conic-gradient(from -45deg, #39b54a 0 90deg, #fff201 90deg 180deg,
+    #00aeee 180deg 270deg, #ed1b24 270deg 360deg) center / 20% 20% no-repeat;
 }
 
 .ludo-board td {

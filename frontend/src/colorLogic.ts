@@ -1,4 +1,4 @@
-export type CellType = 'yard' | 'path' | 'lane' | 'center' | 'empty' | 'start' | 'safe' | 'yard-empty' | 'yard-pawn'
+export type CellType = 'yard' | 'path' | 'lane' | 'center' | 'start' | 'safe' | 'yard-empty' | 'yard-pawn'
 export type Color = 'red' | 'green' | 'yellow' | 'blue' | null
 
 export interface CellInfo {
@@ -35,20 +35,7 @@ export function getCellInfo(row: number, col: number): CellInfo {
   if (row >= 9 && col <= 5) return getYardCellInfo(row, col, 9, 0, 'blue')
 
   if (row >= 6 && row <= 8 && col >= 6 && col <= 8) {
-    const isCenterCorner =
-      (row === 6 && col === 6) ||
-      (row === 6 && col === 8) ||
-      (row === 8 && col === 6) ||
-      (row === 8 && col === 8)
-
-    if (isCenterCorner) return { type: 'empty', color: null }
-
-    if (row === 6 && col === 7) return { type: 'center', color: 'green' }
-    if (row === 7 && col === 8) return { type: 'center', color: 'yellow' }
-    if (row === 8 && col === 7) return { type: 'center', color: 'blue' }
-    if (row === 7 && col === 6) return { type: 'center', color: 'red' }
-
-    return { type: 'empty', color: null }
+    return { type: 'center', color: null }
   }
 
   if (row === 6 && col === 1) return { type: 'start', color: 'red' }
