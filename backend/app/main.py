@@ -68,6 +68,7 @@ def load(db, room, *, lock=False):
 
 ROLL_SECONDS = 5       # Time to roll before the server rolls for the seat.
 MOVE_SECONDS = 15      # Time to move before the server moves a random legal pawn.
+OFFLINE_MOVE_SECONDS = 1  # An offline seat's move is made almost at once; its roll still waits.
 HEARTBEAT_SECONDS = 5  # How often a polling seat refreshes its last_seen time.
 OFFLINE_SECONDS = 15   # A seat without a heartbeat for this long shows as offline.
 AWAY_SECONDS = 300     # A disconnected seat is substituted, or removed without substitutes, after this.
@@ -102,7 +103,7 @@ def snapshot(row, game, seats, key):
     ready = row["mode"] == "local" or len(seats) == len(game.colors)
     timed = (row["mode"] == "online" and ready and game.phase != "won"
              and game.turn_started is not None and game.current not in game.computers)
-    limit = turn_limit(game)
+    limit = turn_limit(game, now)
     private = {"computers": game.computers, "substitutes": game.substitutes} if host else {}
     return dict(**game.view(), **private, can_end=host, room=row["id"], mode=row["mode"], revision=row["revision"],
                 seat=game.colors[seats.index(key)], joined=len(seats), ready=ready,
@@ -111,8 +112,11 @@ def snapshot(row, game, seats, key):
                 turn_remaining=max(0.0, game.turn_started + limit - now) if timed else None)
 
 
-def turn_limit(game):
-    return ROLL_SECONDS if game.phase == "roll" else MOVE_SECONDS
+def turn_limit(game, now):
+    if game.phase == "roll":
+        return ROLL_SECONDS
+    offline = now - game.last_seen.get(game.current, now) >= OFFLINE_SECONDS
+    return OFFLINE_MOVE_SECONDS if offline else MOVE_SECONDS
 
 
 def start_timer(game, now, before):
@@ -234,7 +238,7 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
                         play_for(game)
                         game.last_bot_action = now
                         changed = True
-                elif now - game.turn_started >= turn_limit(game):
+                elif now - game.turn_started >= turn_limit(game, now):
                     play_for(game)
                     game.message = "Time's up. " + game.message
                     changed = True

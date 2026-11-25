@@ -58,12 +58,21 @@ def test_turn_timers_roll_then_move_for_a_slow_seat(client, monkeypatch):
     assert rolled["message"] == "Time's up. Red rolled 6." and rolled["phase"] == "move"
     # The move timer starts after clients finish showing the die.
     assert rolled["turn_seconds"] == 15 and rolled["turn_remaining"] == pytest.approx(15.62)
-    now[0] += 15
+    host = {"Authorization": "Bearer " + session["token"]}
+    now[0] += 10
+    client.get(path, headers=host)  # Red is connected but not moving.
+    now[0] += 5
     assert client.get(path, headers=headers).json()["phase"] == "move"
     now[0] += 1
     moved = client.get(path, headers=headers).json()
     assert moved["message"].startswith("Time's up. Red moved pawn") and moved["phase"] == "roll"
-    assert moved["turn_seconds"] == 5 and moved["presence"] == {"red": "offline", "yellow": "online"}
+    assert moved["turn_seconds"] == 5 and moved["presence"] == {"red": "online", "yellow": "online"}
+    # Once red is offline its roll still times out as usual, but its move follows a second later.
+    now[0] += 15
+    rolled = client.get(path, headers=headers).json()
+    assert rolled["message"] == "Time's up. Red rolled 6." and rolled["turn_seconds"] == 1
+    now[0] += 1.62
+    assert client.get(path, headers=headers).json()["message"].startswith("Time's up. Red moved pawn")
 
 
 def online_room(client, players, substitutes):

@@ -55,7 +55,7 @@ In online rooms a player has 5 seconds to roll, shown as a ring draining around 
 
 The creator of a new online room chooses whether computer substitutes are on (the default; only the creator sees this setting). Every player sees each seat's status on its card:
 
-- **Disconnected** (network drop or closed browser): shown as Offline after 15 seconds. The timers keep playing for the seat. Only that player can reconnect, with Resume game from the same browser, until the game ends. After 5 minutes away, a computer takes over (CPU) and plays without waiting for the timers; reconnecting hands the seat back. Without substitutes the seat is instead removed after 5 minutes.
+- **Disconnected** (network drop or closed browser): shown as Offline after 15 seconds. The timers keep playing for the seat: its roll still waits 5 seconds, but its move is made after 1 second. Only that player can reconnect, with Resume game from the same browser, until the game ends. After 5 minutes away, a computer takes over (CPU) and plays without waiting for the timers; reconnecting hands the seat back. Without substitutes the seat is instead removed after 5 minutes.
 - **Leave game** (chosen on purpose): the player cannot return. With substitutes a computer plays the seat at once; without them the seat is removed.
 - **Removed** (Left): the seat's pawns leave the board and turns skip it. If only one player remains, they win.
 
