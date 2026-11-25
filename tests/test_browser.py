@@ -138,3 +138,41 @@ def test_missing_saved_room_returns_to_lobby_without_polling():
         page.wait_for_timeout(2200)
         assert len(requests) == 1
         browser.close()
+
+
+def test_automatic_move_holds_result_at_rollers_seat():
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
+        page = browser.new_page()
+        page.goto(os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173"))
+        page.get_by_text("Pass and play").click()
+        roll = page.get_by_role("button", name="Roll die")
+        expect(roll).to_be_enabled()
+        # Give red one pawn on the track and fix the roll for a predictable handoff.
+        room = page.evaluate("JSON.parse(localStorage.getItem('ludo-seat')).room")
+        def snapshot(route):
+            state = route.fetch().json()
+            state["pawns"][0].update(row=6, col=1, step=0)
+            route.fulfill(json=state)
+        page.route("**/rooms/" + room + "*", snapshot)
+        page.reload()
+        page.get_by_text("Resume game").click()
+        expect(roll).to_be_enabled()
+        def auto_move(route):
+            state = page.request.get(route.request.url.removesuffix("/actions"),
+                                     headers={"Authorization": route.request.headers["authorization"]}).json()
+            state.update(revision=state["revision"]+1, roll_number=1, die=3, roller="red", current="yellow",
+                         last_move={"roll": 1, "pawn": "red-1", "path": [[6, i] for i in range(1, 5)]})
+            state["pawns"][0].update(row=6, col=4, step=3)
+            route.fulfill(json=state)
+        page.route("**/actions", auto_move)
+        roll.click()
+        expect(page.locator(".rest .die-face i")).to_have_count(3)
+        dock = page.locator(".dice-dock")
+        expect(dock).to_have_attribute("data-seat", "red")
+        pawn = page.locator(".traveling-pawn")
+        assert pawn.evaluate("(p) => p.getAnimations()[0].effect.getComputedTiming().progress") == 0
+        expect(roll).to_be_disabled()
+        expect(dock).to_have_attribute("data-seat", "yellow")
+        expect(pawn).to_have_count(0)
+        browser.close()

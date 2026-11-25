@@ -26,9 +26,11 @@ function unavailable(e: unknown) {
   return e instanceof ApiError && [401, 403, 404, 410].includes(e.status)
 }
 
+const AUTO_MOVE_RESULT_HOLD_MS = 1000
+
 function Play({ session, leave, forget }: { session: Session; leave: () => void; forget: (message: string) => void }) {
   const [game, setGame] = useState<Match | null>(null)
-  const [travel, setTravel] = useState<{ move: NonNullable<Match['last_move']>; before: Match; delay: number } | null>(null)
+  const [travel, setTravel] = useState<{ move: NonNullable<Match['last_move']>; before: Match; die: number; delay: number } | null>(null)
   const traveler = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (!travel || !traveler.current) return
@@ -42,7 +44,7 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
       frames.push({ transform: `translate(${col * 100}%, ${row * 100}%)`, offset: i / (path.length - 1) })
     })
     const movement = traveler.current.animate(frames, {
-      duration: Math.max(250, (path.length - 1) * 165), delay: travel.delay, fill: 'both',
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : Math.max(250, (path.length - 1) * 165), delay: travel.delay, fill: 'both',
     })
     movement.onfinish = () => setTravel(null)
     return () => movement.cancel()
@@ -72,8 +74,9 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
     if (old && move && move.roll !== old.last_move?.roll) {
       const pawn = old.pawns.find(p => p.id === move.pawn)
       const [row, col] = move.path[0]
-      setTravel(pawn?.row === row && pawn.col === col && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        ? { move, before: old, delay: rollDelay } : null)
+      const rolledAndMoved = move.roll === next.roll_number && next.roll_number > old.roll_number
+      setTravel(pawn?.row === row && pawn.col === col
+        ? { move, before: old, die: next.die, delay: rollDelay + (rolledAndMoved ? AUTO_MOVE_RESULT_HOLD_MS : 0) } : null)
     }
     latest.current = next
     setGame(next)
@@ -116,7 +119,7 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
   }
 
   const ownTurn = game?.mode === 'local' || game?.seat === game?.current
-  const active = roller ?? game?.current
+  const active = travel?.before.pawns.find(p => p.id === travel.move.pawn)?.color ?? roller ?? game?.current
   return <main className="match">
     <header><Wordmark/>{(!game || !game.ready || game.phase === 'won') && <button className="quiet" onClick={leave}>Back to lobby</button>}<div className="match-menu">
       <button type="button" className="quiet" aria-label="Game settings" popoverTarget="game-settings">•••</button>
@@ -159,7 +162,7 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
       <div className="dice-dock controls" data-seat={active}>
         <button className="roll" aria-label="Roll die" title="Roll die"
           disabled={!!travel || !game.ready || !ownTurn || busy || rolling || game.phase !== 'roll'} onClick={() => { clickedAt.current = performance.now(); void act('roll') }}>
-          <span className={rolling ? 'tumble' : 'rest'}><Die value={game.die} /></span>
+          <span className={rolling ? 'tumble' : 'rest'}><Die value={travel?.die ?? game.die} /></span>
         </button>
       </div></div></div>
       {!travel && game.phase === 'won' && <h2 className="victory">🏆 {game.profiles[game.current]?.name || game.current} wins!</h2>}
