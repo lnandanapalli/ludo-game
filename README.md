@@ -43,63 +43,18 @@ Open http://localhost:5173. Choose **Pass and play** to share a device. For **Cr
 
 Each folder has a Dockerfile. `backend/` runs the API on port 8000. `frontend/` builds the client with `VITE_API_URL` and serves it with nginx on port 80; the build fails without that argument. All backend instances use the same Postgres database. Online clients poll for changes. Health check: `GET /health`. API docs: `/docs`.
 
-## Deploy to Azure App Service
+## Containers
 
-Two Linux App Services (custom container) pull images that Azure Container Registry builds straight from this public repository. Run these in Azure Cloud Shell (Bash), filling in your names:
-
-```sh
-RG=my-resource-group ACR=myregistry API_APP=ludo-api WEB_APP=ludo-web
-API_HOST=ludoapi.nlpdf.site WEB_HOST=ludo.nlpdf.site
-REPO=https://github.com/lnandanapalli/ludo-game.git
-```
-
-Build both images in ACR:
+From the repository root:
 
 ```sh
-az acr build -r $ACR -t ludo-api:latest "$REPO#main:backend"
-az acr build -r $ACR -t ludo-web:latest --build-arg VITE_API_URL=https://$API_HOST "$REPO#main:frontend"
+docker build -t ludo-api backend
+docker run -p 8000:8000 -e DATABASE_URL='postgresql://...' -e LUDO_ORIGINS=https://play.example.com ludo-api
+docker build -t ludo-web --build-arg VITE_API_URL=https://api.example.com frontend
+docker run -p 8080:80 ludo-web
 ```
 
-Let each app pull from the registry with its managed identity, then point it at its image:
-
-```sh
-ACR_ID=$(az acr show -n $ACR --query id -o tsv)
-for APP in $API_APP $WEB_APP; do
-  PRINCIPAL=$(az webapp identity assign -g $RG -n $APP --query principalId -o tsv)
-  az role assignment create --assignee-object-id $PRINCIPAL --assignee-principal-type ServicePrincipal --role AcrPull --scope $ACR_ID
-  az webapp config set -g $RG -n $APP --always-on true --generic-configurations '{"acrUseManagedIdentityCreds": true}'
-done
-az webapp config container set -g $RG -n $API_APP --container-image-name $ACR.azurecr.io/ludo-api:latest --container-registry-url https://$ACR.azurecr.io
-az webapp config container set -g $RG -n $WEB_APP --container-image-name $ACR.azurecr.io/ludo-web:latest --container-registry-url https://$ACR.azurecr.io
-```
-
-Configure the apps. Keep the database URI in single quotes:
-
-```sh
-az webapp config appsettings set -g $RG -n $API_APP --settings WEBSITES_PORT=8000 LUDO_ORIGINS=https://$WEB_HOST DATABASE_URL='postgresql://...'
-az webapp config appsettings set -g $RG -n $WEB_APP --settings WEBSITES_PORT=80
-az webapp config set -g $RG -n $API_APP --health-check-path /health
-```
-
-Custom domains: at your DNS provider, add for each app a CNAME (`ludo` and `ludoapi`) pointing to the app's default host name and a TXT record (`asuid.ludo` and `asuid.ludoapi`) holding its verification ID. Print both values with:
-
-```sh
-for APP in $WEB_APP $API_APP; do az webapp show -g $RG -n $APP --query "[defaultHostName, customDomainVerificationId]" -o tsv; done
-```
-
-Once DNS resolves, bind each host name with a free managed certificate:
-
-```sh
-add_domain() {
-  az webapp config hostname add -g $RG --webapp-name $1 --hostname $2
-  THUMB=$(az webapp config ssl create -g $RG -n $1 --hostname $2 --query thumbprint -o tsv)
-  az webapp config ssl bind -g $RG -n $1 --certificate-thumbprint $THUMB --ssl-type SNI
-}
-add_domain $WEB_APP $WEB_HOST
-add_domain $API_APP $API_HOST
-```
-
-Check https://ludoapi.nlpdf.site/health, then open https://ludo.nlpdf.site. To deploy a new version, rerun the two `az acr build` commands and restart the apps with `az webapp restart -g $RG -n <app>`.
+On a container host such as Azure App Service, set the API's runtime settings in the host's configuration, route traffic to port 8000 (API) and port 80 (web), and use `/health` as the API health check. Rebuild the web image whenever the API origin changes.
 
 ## Tests
 
