@@ -43,7 +43,7 @@ def test_online_and_local():
         expect(roll).to_be_enabled()
         expect(guest.get_by_role("button", name="Roll die")).to_be_disabled()
         for page in (host, guest):
-            expect(page.locator('.seat-card[data-seat="red"] .turn-timer')).to_be_visible()
+            expect(page.locator('.dice-dock[data-seat="red"] .roll-timer .turn-timer')).to_be_visible()
             expect(page.locator(".presence")).to_have_count(0)
         for page in (host, guest):
             assert page.locator("table.ludo-board td").count() == 225

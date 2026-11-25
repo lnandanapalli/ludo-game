@@ -42,7 +42,7 @@ def test_local_and_restart(client):
         assert state["ready"] and len(state["pawns"]) == 16
 
 
-def test_turn_timer_plays_for_a_slow_seat(client, monkeypatch):
+def test_turn_timers_roll_then_move_for_a_slow_seat(client, monkeypatch):
     now = [1000]
     monkeypatch.setattr("app.main.time", type("Clock", (), {"time": lambda: now[0]}))
     monkeypatch.setattr("app.main.secrets.randbelow", lambda _: 5)
@@ -50,15 +50,37 @@ def test_turn_timer_plays_for_a_slow_seat(client, monkeypatch):
     path = "/rooms/" + session["room"]
     guest = client.post(path + "/join").json()
     headers = {"Authorization": "Bearer " + guest["token"]}
-    now[0] += 14
+    now[0] += 4
     waiting = client.get(path, headers=headers).json()
-    assert waiting["roll_number"] == 0 and waiting["turn_remaining"] == 1
+    assert waiting["roll_number"] == 0 and waiting["turn_remaining"] == 1 and waiting["turn_seconds"] == 5
     now[0] += 1
-    played = client.get(path, headers=headers).json()
-    # The six is rolled and, with four equivalent choices, a pawn is moved for red.
-    assert played["roll_number"] == 1 and played["message"].startswith("Time's up. Red rolled 6.")
-    assert played["last_move"]["pawn"].startswith("red-") and played["current"] == "red"
-    assert played["turn_remaining"] == 15 and played["presence"] == {"red": "offline", "yellow": "online"}
+    rolled = client.get(path, headers=headers).json()
+    assert rolled["message"] == "Time's up. Red rolled 6." and rolled["phase"] == "move"
+    # The move timer starts after clients finish showing the die.
+    assert rolled["turn_seconds"] == 15 and rolled["turn_remaining"] == pytest.approx(15.62)
+    now[0] += 15
+    assert client.get(path, headers=headers).json()["phase"] == "move"
+    now[0] += 1
+    moved = client.get(path, headers=headers).json()
+    assert moved["message"].startswith("Time's up. Red moved pawn") and moved["phase"] == "roll"
+    assert moved["turn_seconds"] == 5 and moved["presence"] == {"red": "offline", "yellow": "online"}
+
+
+def test_player_who_left_rejoins_with_room_code(client):
+    host = client.post("/rooms", json={"players": 2, "mode": "online",
+                                       "profiles": {"red": {"name": "Nova", "avatar": "owl"}}}).json()
+    url = "/rooms/" + host["room"]
+    red = {"Authorization": "Bearer " + host["token"]}
+    yellow = {"Authorization": "Bearer " + client.post(url + "/join").json()["token"]}
+    assert client.post(url + "/join").json()["detail"] == "Room is full."
+    client.post(url + "/leave", headers=red)
+    seat = client.post(url + "/join", json={"profile": {"name": "nova", "avatar": "fox"}})
+    assert seat.status_code == 201
+    back = client.get(url, headers={"Authorization": "Bearer " + seat.json()["token"]}).json()
+    assert back["seat"] == "red" and back["can_end"] and back["profiles"]["red"]["name"] == "Nova"
+    assert client.get(url, headers=red).status_code == 403
+    assert client.get(url, headers=yellow).json()["presence"]["red"] == "online"
+    assert client.post(url + "/join").status_code == 409
 
 
 def test_end_room(client):
@@ -87,17 +109,16 @@ def test_presence_and_substitute_play_without_waiting(client, monkeypatch):
     client.post(url + "/leave", headers=red)
     now[0] += 299
     timed_out = client.get(url, headers=yellow).json()
-    assert timed_out["presence"]["red"] == "left" and timed_out["message"].startswith("Time's up.")
-    now[0] += 1
-    rolled = client.get(url, headers=yellow).json()
-    assert "computers" not in rolled and "substitutes" not in rolled
-    assert rolled["presence"]["red"] == "computer" and rolled["turn_remaining"] is None
-    # The substitute rolls at once instead of waiting out the turn timer.
-    assert rolled["phase"] == "move" and rolled["roll_number"] == timed_out["roll_number"] + 1
-    assert client.get(url, headers=yellow).json()["revision"] == rolled["revision"]
+    assert timed_out["presence"]["red"] == "left" and timed_out["message"] == "Time's up. Red rolled 6."
     now[0] += 1
     moved = client.get(url, headers=yellow).json()
-    assert moved["last_move"]["roll"] == rolled["roll_number"]
+    assert "computers" not in moved and "substitutes" not in moved
+    assert moved["presence"]["red"] == "computer" and moved["turn_remaining"] is None
+    assert moved["last_move"]["roll"] == timed_out["roll_number"] and moved["phase"] == "roll"
+    assert client.get(url, headers=yellow).json()["revision"] == moved["revision"]
+    # The substitute rolls as soon as the pawn has landed instead of waiting five seconds.
+    now[0] += 1.5
+    assert client.get(url, headers=yellow).json()["roll_number"] == timed_out["roll_number"] + 1
     returned = client.get(url, headers=red).json()
     assert returned["computers"] == [] and returned["presence"]["red"] == "online"
     assert client.post(url + "/end", headers=yellow).status_code == 403

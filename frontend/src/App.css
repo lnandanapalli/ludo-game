@@ -88,6 +88,13 @@ input:not([type=checkbox]) { display: block; width: 100%; padding: .75rem; margi
 .turn-timer circle { fill: none; stroke: var(--seat); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 100;
   animation: turn-drain linear forwards; }
 @keyframes turn-drain { from { stroke-dashoffset: var(--spent); } to { stroke-dashoffset: 100; } }
+.turn-timer circle { animation-fill-mode: both; }
+.dice-dock .roll { position: relative; }
+.roll-timer .turn-timer { inset: -7px; width: calc(100% + 14px); height: calc(100% + 14px); }
+.roll-timer[data-hidden] { visibility: hidden; }
+.arena[data-warning] .turn-timer circle { stroke: #ff4545; }
+.arena[data-warning] :is(.seat-card[data-active=true] .portrait, .pawn-icon[data-playable]) { animation: warn .5s steps(2, jump-none) infinite; }
+@keyframes warn { 50% { opacity: .25; } }
 .home-dots { display: flex; gap: 3px; }
 .home-dots i { width: 5px; height: 5px; border-radius: 50%; background: #788687; }
 .home-dots [data-home=true] { background: var(--seat); }
