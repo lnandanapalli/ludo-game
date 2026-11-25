@@ -45,10 +45,11 @@ function notes(pitches: number[], spacing: number, duration: number, delay = 0) 
   }
 }
 
-export function playChanges(old: Match, next: Match) {
+/** `landing` is how many seconds until an animated pawn reaches its square. */
+export function playChanges(old: Match, next: Match, landing?: number) {
   const rolled = next.roll_number > old.roll_number
   if (rolled) notes([610, 390, 510, 320], 0.055, 0.04)
-  const delay = rolled ? 0.25 : 0
+  const delay = landing ?? (rolled ? 0.25 : 0)
   const changes = next.pawns.filter(p => old.pawns.find(previous => previous.id === p.id)?.step !== p.step)
   if (next.phase === 'won' && old.phase !== 'won') notes([392, 494, 587, 784], 0.12, 0.22, delay)
   else if (changes.some(p => p.step === -1)) notes([523, 330, 196], 0.07, 0.12, delay)

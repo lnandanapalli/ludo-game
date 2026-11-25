@@ -27,6 +27,8 @@ function unavailable(e: unknown) {
 }
 
 const AUTO_MOVE_RESULT_HOLD_MS = 1000
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const travelDuration = (path: [number, number][]) => reducedMotion() ? 0 : Math.max(250, (path.length - 1) * 165)
 
 function Play({ session, leave, forget }: { session: Session; leave: () => void; forget: (message: string) => void }) {
   const [game, setGame] = useState<Match | null>(null)
@@ -44,7 +46,7 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
       frames.push({ transform: `translate(${col * 100}%, ${row * 100}%)`, offset: i / (path.length - 1) })
     })
     const movement = traveler.current.animate(frames, {
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : Math.max(250, (path.length - 1) * 165), delay: travel.delay, fill: 'both',
+      duration: travelDuration(path), delay: travel.delay, fill: 'both',
     })
     movement.onfinish = () => setTravel(null)
     return () => movement.cancel()
@@ -60,7 +62,6 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
   const accept = useCallback((next: Match) => {
     const old = latest.current
     if (old && next.revision <= old.revision) return
-    if (old) playChanges(old, next)
     let rollDelay = 0
     if (old && next.roll_number > old.roll_number) {
       const now = performance.now()
@@ -71,13 +72,18 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
       animation.current = window.setTimeout(() => setRoller(null), rollDelay)
     }
     const move = next.last_move
+    let landing: number | undefined
     if (old && move && move.roll !== old.last_move?.roll) {
       const pawn = old.pawns.find(p => p.id === move.pawn)
       const [row, col] = move.path[0]
       const rolledAndMoved = move.roll === next.roll_number && next.roll_number > old.roll_number
-      setTravel(pawn?.row === row && pawn.col === col
-        ? { move, before: old, die: next.die, delay: rollDelay + (rolledAndMoved ? AUTO_MOVE_RESULT_HOLD_MS : 0) } : null)
+      const delay = rollDelay + (rolledAndMoved ? AUTO_MOVE_RESULT_HOLD_MS : 0)
+      const travels = pawn?.row === row && pawn.col === col
+      setTravel(travels ? { move, before: old, die: next.die, delay } : null)
+      // Land the move's sound with the pawn rather than when the update arrives.
+      if (travels) landing = (delay + travelDuration(move.path)) / 1000
     }
+    if (old) playChanges(old, next, landing)
     latest.current = next
     setGame(next)
   }, [])
@@ -203,11 +209,16 @@ export default function App() {
     return () => { active = false }
   }, [session, lobby, forget])
   async function enter(mode: 'local' | 'online' | 'join') {
+    const code = room.trim().toLowerCase()
+    if (mode === 'join' && session?.room === code) {
+      setError('You already have a seat in this room. Use Resume game.')
+      return
+    }
     setBusy(true)
     setError('')
     try {
       const seat = mode === 'join'
-        ? await request<Session>('/rooms/' + encodeURIComponent(room.trim().toLowerCase()) + '/join', undefined, { profile: guestProfile, auto_move: guestAuto })
+        ? await request<Session>('/rooms/' + encodeURIComponent(code) + '/join', undefined, { profile: guestProfile, auto_move: guestAuto })
         : await request<Session>('/rooms', undefined, { mode, players, profiles, substitutes: mode === 'online' && substitutes, auto_move: Object.fromEntries(colors.map(c => [c, preferences[c] ?? true])) })
       seat.mode = mode === 'join' ? 'online' : mode
       setMode(seat.mode)

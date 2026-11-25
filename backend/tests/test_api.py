@@ -52,7 +52,9 @@ def test_disconnected_turn_is_skipped_without_substitutes(client, monkeypatch):
     now[0] += 299
     assert client.get(path, headers=headers).status_code == 200
     now[0] += 1
-    assert client.get(path, headers=headers).json()["current"] == "yellow"
+    skipped = client.get(path, headers=headers).json()
+    assert skipped["current"] == "yellow"
+    assert skipped["message"] == "Red is away; turn skipped."
 
 
 def test_end_room(client):

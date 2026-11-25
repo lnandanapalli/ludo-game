@@ -153,6 +153,7 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
                     game.last_bot_action = now
                     changed = True
             elif result["ready"] and now - game.last_seen.get(game.current, now) >= 300:
+                game.message = f"{game.current.title()} is away; turn skipped."
                 game.pass_turn()
                 changed = True
             if heartbeat or changed:

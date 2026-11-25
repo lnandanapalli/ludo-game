@@ -135,8 +135,11 @@ def test_missing_saved_room_returns_to_lobby_without_polling():
         expect(page.get_by_role("alert")).to_have_text("Room not found.")
         expect(page.get_by_text("Pass and play")).to_be_visible()
         assert page.evaluate("localStorage.getItem('ludo-seat')") is None
+        # Development StrictMode may run the saved-game check twice; no polling follows.
+        checked = len(requests)
+        assert checked <= 2
         page.wait_for_timeout(2200)
-        assert len(requests) == 1
+        assert len(requests) == checked
         browser.close()
 
 
@@ -175,4 +178,21 @@ def test_automatic_move_holds_result_at_rollers_seat():
         expect(roll).to_be_disabled()
         expect(dock).to_have_attribute("data-seat", "yellow")
         expect(pawn).to_have_count(0)
+        browser.close()
+
+
+def test_own_invite_link_keeps_host_seat():
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
+        page = browser.new_page()
+        page.goto(os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173"))
+        page.get_by_role("button", name="Online", exact=True).click()
+        page.get_by_text("Create online room").click()
+        invite = page.get_by_label("Invite link").input_value()
+        seat = page.evaluate("localStorage.getItem('ludo-seat')")
+        page.goto(invite)
+        expect(page.get_by_text("Resume game")).to_be_visible()
+        page.get_by_role("button", name="Join room").click()
+        expect(page.get_by_role("alert")).to_have_text("You already have a seat in this room. Use Resume game.")
+        assert page.evaluate("localStorage.getItem('ludo-seat')") == seat
         browser.close()
