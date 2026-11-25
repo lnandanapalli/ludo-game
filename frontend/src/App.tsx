@@ -76,7 +76,7 @@ function Play({ session, leave, forget }: { session: Session; leave: () => void;
   const ownTurn = game?.mode === 'local' || game?.seat === game?.current
   const active = rolling && game?.roller ? game.roller : game?.current
   return <main className="match">
-    <header><Wordmark/><button className="quiet" onClick={leave}>Back to lobby</button><div className="match-menu">
+    <header><Wordmark/>{(!game || !game.ready || game.phase === 'won') && <button className="quiet" onClick={leave}>Back to lobby</button>}<div className="match-menu">
       <button type="button" className="quiet" aria-label="Game settings" popoverTarget="game-settings">•••</button>
       <div id="game-settings" popover="auto"><SoundToggle/>
         <button type="button" className="quiet" onClick={async () => {

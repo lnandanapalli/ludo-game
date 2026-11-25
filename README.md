@@ -24,7 +24,7 @@ npm ci
 npm run dev
 ```
 
-Open http://localhost:5173. Choose **Pass and play** to share a device. For **Create online room**, choose the seat count first, then share the invite link or room code. Each friend joins from a separate browser profile or device. The match starts when all seats are filled. Opening or refreshing shows the lobby. Resume game reopens your saved seat. Local games can be resumed indefinitely. Online games allow five minutes since each joined player’s last heartbeat; an absent seat then expires the room for everyone. Back to lobby pauses your presence. End game in the match menu closes the room immediately. Starting or joining another match replaces the saved seat. In Codespaces, run both servers in the same Codespace, leave VITE_API_URL unset, and open forwarded port 5173. Visit /api/health on that frontend URL to check the connection.
+Open http://localhost:5173. Choose **Pass and play** to share a device. For **Create online room**, choose the seat count first, then share the invite link or room code. Each friend joins from a separate browser profile or device. The match starts when all seats are filled. Opening or refreshing shows the lobby. Resume game reopens your saved seat. Local games can be resumed indefinitely. Online games allow five minutes since each joined player’s last heartbeat; an absent seat then expires the room for everyone. During play, use the match menu to confirm leaving your seat (with substitutes) or ending the game. Starting or joining another match replaces the saved seat. In Codespaces, run both servers in the same Codespace, leave VITE_API_URL unset, and open forwarded port 5173. Visit /api/health on that frontend URL to check the connection.
 
 ## Rules used here
 
