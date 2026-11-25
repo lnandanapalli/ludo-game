@@ -40,3 +40,25 @@ def test_local_and_restart(client):
     with TestClient(app) as restarted:
         state = restarted.get(path, headers={"Authorization": "Bearer " + session["token"]}).json()
         assert state["ready"] and len(state["pawns"]) == 16
+
+
+def test_online_disconnect_expires_even_if_other_seat_stays(client, monkeypatch):
+    now = [1000]
+    monkeypatch.setattr("app.main.time", type("Clock", (), {"time": lambda: now[0]}))
+    session = client.post("/rooms", json={"players": 2, "mode": "online"}).json()
+    path = "/rooms/" + session["room"]
+    guest = client.post(path + "/join").json()
+    headers = {"Authorization": "Bearer " + guest["token"]}
+    now[0] += 299
+    assert client.get(path, headers=headers).status_code == 200
+    now[0] += 1
+    assert client.get(path, headers=headers).status_code == 410
+
+
+def test_end_room(client):
+    session = client.post("/rooms", json={"players": 2, "mode": "local"}).json()
+    path = "/rooms/" + session["room"]
+    headers = {"Authorization": "Bearer " + session["token"]}
+    assert client.post(path + "/leave").status_code == 401
+    assert client.post(path + "/leave", headers=headers).status_code == 200
+    assert client.get(path, headers=headers).status_code == 404

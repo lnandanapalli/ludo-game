@@ -23,6 +23,11 @@ export interface Match {
 
 const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 
+export class ApiError extends Error {
+  status: number
+  constructor(status: number, message: string) { super(message); this.status = status }
+}
+
 export async function request<T>(path: string, token?: string, body?: object): Promise<T> {
   const headers = new Headers()
   if (token) headers.set('Authorization', 'Bearer ' + token)
@@ -32,7 +37,7 @@ export async function request<T>(path: string, token?: string, body?: object): P
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
-    throw new Error(typeof error.detail === 'string' ? error.detail : 'Request failed. Please retry.')
+    throw new ApiError(response.status, typeof error.detail === 'string' ? error.detail : 'Request failed. Please retry.')
   }
   return response.json()
 }

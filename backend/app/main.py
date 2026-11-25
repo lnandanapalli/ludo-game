@@ -2,6 +2,7 @@
 import hashlib
 import os
 import secrets
+import time
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -58,7 +59,11 @@ def load(db, room, *, lock=False):
     row = db.execute(query + (" FOR UPDATE" if lock else ""), (room,)).fetchone()
     if row is None:
         raise HTTPException(404, "Room not found.")
-    return row, Game(**row["state"]), row["seats"]
+    game = Game(**row["state"])
+    if row["mode"] == "online" and game.phase != "won" and game.last_seen:
+        if time.time() - min(game.last_seen.values()) >= 300:
+            raise HTTPException(410, "The online room expired after a player disconnected.")
+    return row, game, row["seats"]
 
 
 def snapshot(row, game, seats, key):
@@ -88,6 +93,8 @@ def create(setup: Setup):
     room = secrets.token_hex(5)
     token = secrets.token_urlsafe(32)
     game = Game.new(setup.players)
+    if setup.mode == "online":
+        game.last_seen[game.colors[0]] = time.time()
     eligible = game.colors if setup.mode == "local" else game.colors[:1]
     game.profiles = {c: setup.profiles[c].model_dump() for c in eligible if c in setup.profiles}
     game.auto_move = {c: setup.auto_move.get(c, False) for c in eligible}
@@ -104,6 +111,8 @@ def join(room: str, setup: JoinSetup | None = None):
         row, game, seats = load(db, room, lock=True)
         if row["mode"] != "online" or len(seats) >= len(game.colors):
             raise HTTPException(409, "Room is full or private to one device.")
+        for color in game.colors[:len(seats)+1]:
+            game.last_seen.setdefault(color, time.time())
         if setup and setup.profile:
             game.profiles[game.colors[len(seats)]] = setup.profile.model_dump()
         game.auto_move[game.colors[len(seats)]] = bool(setup and setup.auto_move)
@@ -114,9 +123,26 @@ def join(room: str, setup: JoinSetup | None = None):
 
 
 @app.get("/rooms/{room}")
-def read(room: str, key: Annotated[str, Depends(credential)]):
+def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = False):
     with database() as db:
-        return snapshot(*load(db, room), key)
+        row, game, seats = load(db, room, lock=not preview)
+        result = snapshot(row, game, seats, key)
+        if not preview and row["mode"] == "online" and game.phase != "won":
+            now = time.time()
+            if now - game.last_seen.get(result["seat"], 0) >= 10:
+                for color in game.colors[:len(seats)]:
+                    game.last_seen.setdefault(color, now)
+                game.last_seen[result["seat"]] = now
+                db.execute("UPDATE ludo.rooms SET state=%s WHERE id=%s", (Jsonb(game.dump()), room))
+        return result
+
+
+@app.post("/rooms/{room}/leave")
+def leave(room: str, key: Annotated[str, Depends(credential)]):
+    with database() as db:
+        snapshot(*load(db, room, lock=True), key)
+        db.execute("DELETE FROM ludo.rooms WHERE id=%s", (room,))
+    return {"ended": True}
 
 
 @app.post("/rooms/{room}/actions")

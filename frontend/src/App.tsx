@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Board from './Board'
 import BoardGrid from './BoardGrid'
-import { request, type Match, type Profile, type Session } from './api'
+import { ApiError, request, type Match, type Profile, type Session } from './api'
 import Die from './Die'
 import SoundToggle from './SoundToggle'
 import { playChanges } from './sound'
@@ -22,7 +22,11 @@ function savedSeat(): Session | null {
   } catch { return null }
 }
 
-function Play({ session, leave }: { session: Session; leave: () => void }) {
+function unavailable(e: unknown) {
+  return e instanceof ApiError && [401, 403, 404, 410].includes(e.status)
+}
+
+function Play({ session, leave, forget }: { session: Session; leave: () => void; forget: (message: string) => void }) {
   const [game, setGame] = useState<Match | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -48,8 +52,9 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
     async function refresh() {
       try {
         const next = await request<Match>(path, session.token)
-        if (active) accept(next)
+        if (active) { accept(next); setError('') }
       } catch (e) {
+        if (active && unavailable(e)) { active = false; forget((e as Error).message); return }
         if (active) setError((e as Error).message)
       } finally {
         if (active) timer = window.setTimeout(refresh, 1800)
@@ -57,7 +62,7 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
     }
     void refresh()
     return () => { active = false; clearTimeout(timer); clearTimeout(animation.current) }
-  }, [accept, path, session.token])
+  }, [accept, forget, path, session.token])
 
   async function act(action: 'roll' | 'move', pawn?: number) {
     if (!game || busy) return
@@ -72,10 +77,14 @@ function Play({ session, leave }: { session: Session; leave: () => void }) {
   const ownTurn = game?.mode === 'local' || game?.seat === game?.current
   const active = rolling && game?.roller ? game.roller : game?.current
   return <main className="match">
-    <header><Wordmark/><div className="match-menu">
+    <header><Wordmark/><button className="quiet" onClick={leave}>Back to lobby</button><div className="match-menu">
       <button type="button" className="quiet" aria-label="Game settings" popoverTarget="game-settings">•••</button>
       <div id="game-settings" popover="auto"><SoundToggle/>
-        <button type="button" className="quiet" onClick={leave}>Back to lobby</button>
+        <button type="button" className="quiet" onClick={async () => {
+          if (!window.confirm("End this game for all players?")) return
+          try { await request(path + '/leave', session.token, {}); forget('Game ended.') }
+          catch (e) { if (unavailable(e)) forget('Game ended.'); else setError((e as Error).message) }
+        }}>End game</button>
       </div>
     </div></header>
     {error && <p role="alert">{error}</p>}
@@ -120,7 +129,21 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [demo, setDemo] = useState(false)
-  const [lobby, setLobby] = useState(false)
+  const [lobby, setLobby] = useState(true)
+  const forget = useCallback((message: string) => {
+    localStorage.removeItem(storageKey)
+    setSession(null)
+    setLobby(true)
+    setError(message)
+  }, [])
+  useEffect(() => {
+    if (!session || !lobby) return
+    let active = true
+    request<Match>('/rooms/' + session.room + '?preview=true', session.token).then(match => {
+      if (active && match.phase === 'won') forget('Your previous game finished.')
+    }).catch(e => { if (active && unavailable(e)) forget(e.message) })
+    return () => { active = false }
+  }, [session, lobby, forget])
   async function enter(mode: 'local' | 'online' | 'join') {
     setBusy(true)
     setError('')
@@ -135,11 +158,12 @@ export default function App() {
     } catch (e) { setError((e as Error).message) }
     finally { setBusy(false) }
   }
-  if (session && !lobby) return <Play key={session.room} session={session} leave={() => setLobby(true)} />
+  if (session && !lobby) return <Play key={session.room} session={session} leave={() => setLobby(true)} forget={forget} />
   if (demo) return <main><button onClick={() => setDemo(false)}>Back to lobby</button><Board /></main>
   const colors = players === 2 ? ['red', 'yellow'] : ['red', 'green', 'yellow', 'blue'].slice(0, players)
   return <main className="lobby"><header><Wordmark/><button className="quiet" onClick={() => setDemo(true)}>Pawn demos</button></header>
-    {session && <button onClick={() => setLobby(false)}>Resume game</button>}
+    {session && <div><button onClick={() => setLobby(false)}>Resume game</button>{' '}
+      <button className="quiet" onClick={() => { if (window.confirm("Remove the saved seat from this browser?")) forget('') }}>Forget saved seat</button></div>}
     <div className="setup-layout"><section className="panel"><h2>Start a game</h2>
       <div className="segmented" aria-label="Game mode">
         <button aria-pressed={mode === 'local'} onClick={() => setMode('local')}>One device</button>
