@@ -287,11 +287,21 @@ def create(setup: Setup, account: Annotated[int | None, Depends(optional_account
     game.profiles = {c: setup.profiles[c].model_dump() for c in eligible if c in setup.profiles}
     game.auto_move = {c: setup.auto_move.get(c, False) for c in eligible}
     with database() as db:
-        cleanup(db)
-        db.execute("INSERT INTO ludo.rooms(id,mode,seats,state) VALUES(%s,%s,%s,%s)",
-                   (room, setup.mode, Jsonb([digest(token)]), Jsonb(game.dump())))
+        for _ in range(5):  # A 40-bit code almost never collides, but never fail if it does.
+            if db.execute("INSERT INTO ludo.rooms(id,mode,seats,state) VALUES(%s,%s,%s,%s) "
+                          "ON CONFLICT (id) DO NOTHING RETURNING id",
+                          (room, setup.mode, Jsonb([digest(token)]), Jsonb(game.dump()))).fetchone():
+                break
+            room = secrets.token_hex(5)
+        else:
+            raise HTTPException(503, "Could not create a room. Please try again.")
         if setup.mode == "online":
             link(db, room, account, game.colors[0])
+    try:
+        with database() as db:  # Separate and best effort, so housekeeping never blocks a new room.
+            cleanup(db)
+    except Exception:
+        pass
     return {"room": room, "token": token}
 
 
@@ -340,7 +350,7 @@ def reclaim(room: str, account: Annotated[int, Depends(required_account)]):
 
 @app.get("/rooms/{room}")
 def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = False,
-         events_after: int = Query(default=0, ge=0)):
+         events_after: int = Query(default=0, ge=0, le=2 ** 63 - 1)):
     with database() as db:
         row, game, seats = load(db, room, lock=not preview)
         result = snapshot(row, game, seats, key)
@@ -390,17 +400,25 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
         return result
 
 
-def speaker(db, room, key, kind):
-    """Authorize a chat or emote from this seat and apply its strict per-seat allowance."""
-    row, game, seats = load(db, room)
+def speaker(db, room, key):
+    """Authorize a chat or emote from this seat.
+
+    The room row is locked, like every other change to a room: posts are stored in the order polls
+    read them, and a room ended at the same moment answers 404 instead of failing the insert.
+    """
+    row, game, seats = load(db, room, lock=True)
     color = snapshot(row, game, seats, key)["seat"]
     if row["mode"] != "online":
         raise HTTPException(409, "Chat is only available in online rooms.")
+    return game, seats, color
+
+
+def spend(kind, key):
+    """Apply the strict per-seat allowance, only once a request is known to be valid."""
     wait = limiter.hit(kind, key)
     if wait:
         what = "messages" if kind == "chat" else "emotes"
         raise HTTPException(429, f"Too many {what}. More in {wait} seconds.", headers={"Retry-After": str(wait)})
-    return game, seats, color
 
 
 @app.post("/rooms/{room}/chat", status_code=201)
@@ -410,19 +428,21 @@ def send_chat(room: str, message: ChatIn, key: Annotated[str, Depends(credential
         raise HTTPException(422, f"Messages must be 1 to {chat.MAX_LENGTH} characters.")
     text = censor(text)
     with database() as db:
-        _, _, color = speaker(db, room, key, "chat")
+        _, _, color = speaker(db, room, key)
+        spend("chat", key)
         return chat.add(db, room, "chat", color, text)
 
 
 @app.post("/rooms/{room}/emote", status_code=201)
 def send_emote(room: str, emote: EmoteIn, key: Annotated[str, Depends(credential)]):
     with database() as db:
-        game, seats, color = speaker(db, room, key, "emote")
+        game, seats, color = speaker(db, room, key)
         target = emote.target
         if target is not None and (target == color or target not in game.colors[:len(seats)] or target in game.out):
             raise HTTPException(422, "Choose another player in this game.")
         if target is None and emote.emote in chat.THROWS:
             raise HTTPException(422, "Choose a player to send that to.")
+        spend("emote", key)
         return chat.add(db, room, "emote", color, emote.emote, target)
 
 
@@ -433,7 +453,19 @@ def leave(room: str, key: Annotated[str, Depends(credential)]):
         row, game, seats = load(db, room, lock=True)
         color = snapshot(row, game, seats, key)["seat"]
         if row["mode"] == "online" and game.phase != "won":
+            index = game.colors.index(color)
+            if len(seats) < len(game.colors) and index == len(seats) - 1 and index > 0:
+                # The game has not started and this was the latest seat taken: give it back, so
+                # the next player to join gets it fresh.
+                free_seat(db, room, game, seats, color)
+                return {"ended": False}
             game.quit.append(color)
+            # Computers only play while some player polls the room. Once nobody is left who could
+            # return (every joined seat has left or been removed), end the room instead of
+            # leaving it frozen. A merely disconnected player can still return, so they count.
+            if not any(c not in game.quit and c not in game.out for c in game.colors[:len(seats)]):
+                end_room(db, room)
+                return {"ended": True}
             if game.substitutes:
                 game.computers.append(color)
                 game.message = f"{color.title()} left; a computer plays for them."
@@ -442,15 +474,20 @@ def leave(room: str, key: Annotated[str, Depends(credential)]):
                 game.remove(color, "left the game")
                 if game.current != current:
                     game.turn_started = time.time()
-            # Computers only play while some player polls the room. Once nobody is left who could
-            # return (every joined seat has left or been removed), end the room instead of
-            # leaving it frozen. A merely disconnected player can still return, so they count.
-            joined = game.colors[:len(seats)]
-            if game.phase != "won" and not any(c not in game.quit and c not in game.out for c in joined):
-                end_room(db, room)
-                return {"ended": True}
             save(db, room, game)
     return {"ended": False}
+
+
+def free_seat(db, room, game, seats, color):
+    seats.pop()
+    for table in (game.profiles, game.auto_move, game.last_seen):
+        table.pop(color, None)
+    if color in game.computers:
+        game.computers.remove(color)
+    db.execute("DELETE FROM ludo.room_players WHERE room_id=%s AND color=%s AND result IS NULL", (room, color))
+    db.execute("DELETE FROM ludo.room_events WHERE room_id=%s AND (seat=%s OR target=%s)", (room, color, color))
+    game.message = f"{color.title()} left before the game started."
+    save(db, room, game, seats=seats)
 
 
 def end_room(db, room):

@@ -236,9 +236,9 @@ export default function Play({ session, leave, forget }: { session: Session; lea
         </>}
         <button type="button" className="quiet" onClick={async () => {
           const online = game?.mode === 'online' && game.phase !== 'won'
-          if (!window.confirm(online
-            ? "Leave this game for good? You can't rejoin. A computer takes your seat if substitutes are on; otherwise you're removed."
-            : "Leave this game? You can resume from the lobby.")) return
+          if (!window.confirm(!online ? "Leave this game? You can resume from the lobby."
+            : !game.ready ? "Leave this room? Your seat is given up, and the room closes if nobody else has joined."
+            : "Leave this game for good? You can't rejoin. A computer takes your seat if substitutes are on; otherwise you're removed.")) return
           try { await request(path + '/leave', session.token, {}); if (online) forget('You left the game.'); else leave() }
           catch (e) { if (unavailable(e)) forget('Room unavailable.'); else setError((e as Error).message) }
         }}>Leave game</button>
