@@ -7,6 +7,7 @@ from pathlib import Path
 from psycopg.types.json import Jsonb
 
 from app.db import database
+from app.migrate import migrate as create_schema
 
 
 def migrate(path):
@@ -34,4 +35,6 @@ def migrate(path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
-    print(f"Imported {migrate(parser.parse_args().source)} rooms.")
+    source = parser.parse_args().source
+    create_schema()
+    print(f"Imported {migrate(source)} rooms.")

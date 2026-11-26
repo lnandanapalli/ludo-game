@@ -4,7 +4,7 @@ Play on one device or invite friends to a private room. Every match has 2–4 se
 
 ## Run locally
 
-Create a Supabase project and run every file in [`supabase/migrations`](supabase/migrations), oldest first, in its SQL Editor. In **Connect**, copy the PostgreSQL session pooler URI, supply the URL-encoded database password, and enable TLS with `sslmode=require`. Use that URI as the backend's `DATABASE_URL`. A local Postgres database with the same migrations also works.
+Create a Supabase project. In **Connect**, copy the PostgreSQL session pooler URI, supply the URL-encoded database password, and enable TLS with `sslmode=require`. Use that URI as the backend's `DATABASE_URL`; a local Postgres database also works. The API creates and updates its tables itself when it starts (see [Database migrations](#database-migrations)).
 
 Use Python 3.12 and Node.js 24. Start the API from the repository root:
 
@@ -75,11 +75,16 @@ Signing up is optional and needs a username, email address and password. The acc
 | `LUDO_ORIGINS` | Backend | Comma-separated exact frontend origins allowed by CORS, e.g. `https://play.example.com`. |
 | `DATABASE_URL` | Backend | Postgres connection URI. Required. |
 | `LUDO_PROXY_HOPS` | Backend | Trusted proxies in front of the API (default 0; the Docker image sets 1). |
+| `LUDO_AUTO_MIGRATE` | Backend | `0` turns off applying `backend/migrations` at startup (default on). |
 | `RESEND_API_KEY` | Backend | [Resend](https://resend.com) API key for sign-up and password-reset emails. Without it (and without `LUDO_MAIL_DEV`), account creation and password reset are unavailable. |
 | `LUDO_MAIL_FROM` | Backend | Sender, on a domain verified in Resend, e.g. `Ludo <no-reply@example.com>`. |
 | `LUDO_MAIL_DEV` | Backend | Development only: `1` prints emails instead of sending them; with `LUDO_MAIL_DIR`, also writes them there as JSON. Never set in production. |
 
 Rate limits are kept in memory per API instance. Health check: `GET /health`. API docs: `/docs`.
+
+## Database migrations
+
+The SQL files in [`backend/migrations`](backend/migrations) run automatically, in name order, each time the API starts. Each file runs once and is recorded in `ludo.schema_migrations`; a database lock makes several instances starting together wait for each other, and a file that fails is rolled back and stops the API from starting, so it never serves an outdated schema. To change the schema, add a new file with a later name rather than editing an applied one. The database user needs permission to create tables (Supabase's `postgres` user has it). To apply the files yourself instead, set `LUDO_AUTO_MIGRATE=0` and run them in order, for example in Supabase's SQL Editor.
 
 ## Containers
 
@@ -96,8 +101,8 @@ The API listens on port 8000 and the web server on port 80. On a container host 
 
 ## Tests
 
-Use a dedicated test Postgres database with the migrations applied as `DATABASE_URL`. Run `python -m pytest` inside `backend` with the development requirements installed, and `npm run lint && npm run build` inside `frontend`. The browser suite in `tests/` uses Python Playwright against both running services on their default local ports, with the API started with `LUDO_MAIL_DEV=1 LUDO_MAIL_DIR=/tmp/ludo-mail` so the tests can read emailed codes: install Chromium with `python -m playwright install chromium`, then run `python -m pytest tests/` from the repository root. GitHub Actions runs these checks on every push and pull request.
+Use a dedicated test Postgres database as `DATABASE_URL`; the tests create the schema through the same automatic migrations, and the migration tests also create and drop temporary databases, so the user needs permission to create databases. Run `python -m pytest` inside `backend` with the development requirements installed, and `npm run lint && npm run build` inside `frontend`. The browser suite in `tests/` uses Python Playwright against both running services on their default local ports, with the API started with `LUDO_MAIL_DEV=1 LUDO_MAIL_DIR=/tmp/ludo-mail` so the tests can read emailed codes: install Chromium with `python -m playwright install chromium`, then run `python -m pytest tests/` from the repository root. GitHub Actions runs these checks on every push and pull request.
 
 ## Existing SQLite matches
 
-Stop writes to the old backend, keep a copy of its SQLite file, and apply the migrations above. From `backend/`, with the destination `DATABASE_URL` set, run `python import_sqlite.py /path/to/ludo.sqlite3` before starting the new backend. The import preserves room codes, seat credentials and turn revisions. Identical rooms are skipped; conflicting rooms roll back the import.
+Stop writes to the old backend and keep a copy of its SQLite file. From `backend/`, with the destination `DATABASE_URL` set, run `python import_sqlite.py /path/to/ludo.sqlite3` before starting the new backend; it creates the schema first. The import preserves room codes, seat credentials and turn revisions. Identical rooms are skipped; conflicting rooms roll back the import.

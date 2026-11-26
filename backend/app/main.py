@@ -5,6 +5,7 @@ import re
 import secrets
 import threading
 import time
+from contextlib import asynccontextmanager
 from time import monotonic
 from dataclasses import fields
 from typing import Annotated, Literal
@@ -17,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .accounts import Profile, optional_account, required_account, resolve, router as accounts_router
 from .db import database
+from .migrate import migrate
 from .game import COLORS, Game
 from .security import BodyLimit, SecurityHeaders, client_ip, limiter, send_json
 
@@ -76,7 +78,14 @@ async def too_many(send, wait):
                     [(b"retry-after", str(wait).encode())])
 
 
-app = FastAPI(title="Ludo")
+@asynccontextmanager
+async def lifespan(_):
+    # Bring the database schema up to date before serving any request.
+    await run_in_threadpool(migrate)
+    yield
+
+
+app = FastAPI(title="Ludo", lifespan=lifespan)
 app.include_router(accounts_router)
 # The last middleware added runs first: CORS wraps everything so even 429 and 413 replies reach the browser.
 app.add_middleware(RateLimit)
