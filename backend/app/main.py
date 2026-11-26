@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .accounts import Profile, optional_account, required_account, resolve, router as accounts_router
 from . import chat
+from .profanity import censor
 from .db import database
 from .migrate import migrate
 from .game import COLORS, Game
@@ -407,6 +408,7 @@ def send_chat(room: str, message: ChatIn, key: Annotated[str, Depends(credential
     text = chat.clean(message.text)
     if not text or len(text) > chat.MAX_LENGTH:
         raise HTTPException(422, f"Messages must be 1 to {chat.MAX_LENGTH} characters.")
+    text = censor(text)
     with database() as db:
         _, _, color = speaker(db, room, key, "chat")
         return chat.add(db, room, "chat", color, text)

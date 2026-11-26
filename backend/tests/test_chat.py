@@ -76,3 +76,12 @@ def test_strict_allowances_per_seat(client):
     for _ in range(6):
         assert client.post(url + "/chat", headers=red, json={"text": "hi"}).status_code == 201
     assert client.post(url + "/chat", headers=red, json={"text": "hi"}).status_code == 429
+
+
+def test_swearing_is_masked_for_everyone(client):
+    from test_profanity import SAMPLES  # Real entries from the library's dictionary, not written here.
+    word = SAMPLES[0]
+    url, (red, yellow) = online(client)
+    sent = client.post(url + "/chat", headers=red, json={"text": f"oh {' '.join(word)} this, nice game!"}).json()
+    assert sent["body"] == f"oh {word[0]} {' '.join('*' * (len(word) - 1))} this, nice game!"
+    assert client.get(url, headers=yellow).json()["events"][-1]["body"] == sent["body"]
