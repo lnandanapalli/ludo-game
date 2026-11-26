@@ -1,0 +1,73 @@
+/* Chat: a side panel on wide screens, a floating button and bottom sheet on narrow ones. */
+.chat-body { display: flex; flex-direction: column; gap: .5rem; min-height: 0; }
+.chat-body[hidden] { display: none; }
+.chat-head { display: flex; align-items: center; gap: .25rem; margin: 0; }
+.chat-head h2 { flex: 1; margin: 0; font-size: 1.1rem; }
+.chat-head button { min-width: 44px; padding: .3rem .5rem; }
+.chat-settings { display: grid; padding: .25rem .5rem; border-radius: 12px; background: #172829; }
+.chat-settings .preference { font-size: .9rem; }
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: .25rem; list-style: none; display: grid; align-content: start; gap: .35rem;
+  overscroll-behavior: contain; }
+.chat-log li { overflow-wrap: anywhere; line-height: 1.35; font-size: .93rem; }
+.chat-log strong { color: var(--seat, #f3f3ee); }
+.chat-log .emote-line { color: #c8d5d1; font-style: italic; }
+.chat-empty { color: #9fb1ad; font-size: .9rem; }
+.quick-phrases { display: flex; gap: .35rem; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.quick-phrases button { flex: none; min-height: 36px; padding: .3rem .65rem; border-radius: 18px; font-size: .85rem; }
+.quick-emotes { display: grid; grid-template-columns: repeat(8, 1fr); gap: .25rem; }
+.quick-emotes button { min-height: 40px; padding: 0; font-size: 1.3rem; border-radius: 10px; }
+.chat-hint { margin: 0; color: #9fb1ad; font-size: .8rem; }
+.chat-input { display: flex; gap: .4rem; }
+.chat-input input { margin: 0; min-width: 0; }
+.chat-input button { width: auto; flex: none; }
+.chat-error { margin: 0; font-size: .85rem; }
+.chat-toggle { position: relative; font-size: 1.35rem; padding: .4rem .7rem; }
+.chat-badge { position: absolute; top: -6px; right: -6px; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px;
+  background: #ff5a4e; color: #fff; font-size: .75rem; font-weight: 700; line-height: 22px; text-align: center; }
+.chat-backdrop { display: none; }
+
+@media (min-width: 1100px) {
+  .play-page[data-chat] { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .play-page[data-chat] > .match { margin-inline: auto; }
+  .chat { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; align-items: stretch;
+    padding: 1rem 1rem 1rem 0; }
+  .chat[data-open=true] { width: 340px; }
+  .chat[data-open=true] .chat-toggle { display: none; }
+  .chat[data-open=false] { padding-right: 1rem; }
+  .chat-body { flex: 1; padding: 1rem; border: 1px solid #526261; border-radius: 20px; background: #233435; box-shadow: 0 8px 26px #07141444; }
+}
+
+@media (max-width: 1099.98px) {
+  .chat-toggle { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom));
+    z-index: 7; width: 56px; height: 56px; border-radius: 50%; background: #f5d783; color: #292613; box-shadow: 0 6px 18px #0009; }
+  .chat[data-open=true] .chat-toggle { display: none; }
+  .chat-backdrop { display: block; position: fixed; inset: 0; z-index: 8; background: #0008; animation: fade-in .2s ease-out; }
+  .chat-body { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; height: min(72dvh, 560px);
+    padding: .9rem max(1rem, env(safe-area-inset-right)) max(.9rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+    border-radius: 20px 20px 0 0; background: #233435; border-top: 1px solid #526261; box-shadow: 0 -10px 30px #000a;
+    animation: sheet-up .25s cubic-bezier(.2, .9, .3, 1); }
+  .chat-body::before { content: ""; align-self: center; width: 42px; height: 5px; border-radius: 3px; background: #6a7b79; margin-top: -.3rem; }
+  .quick-emotes { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+}
+@keyframes sheet-up { from { transform: translateY(100%); } }
+@keyframes fade-in { from { opacity: 0; } }
+
+/* Player pictures open the emote picker in online rooms. */
+.portrait-button { min-height: 0; padding: 0; border: 0; border-radius: 50%; background: none; }
+.portrait-button:enabled:hover { filter: brightness(1.15); }
+
+.emote-picker { position: fixed; z-index: 10; width: min(92vw, 300px); padding: .75rem; border: 1px solid #526261; border-radius: 16px;
+  background: #233435; box-shadow: 0 12px 30px #000a; }
+.emote-picker-title { margin: 0 0 .5rem; font-size: .95rem; }
+.emote-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .35rem; margin-bottom: .4rem; }
+.emote-grid button { display: grid; justify-items: center; gap: 2px; min-height: 58px; padding: .3rem .15rem; border-radius: 12px; }
+.emote-grid button span { font-size: 1.5rem; line-height: 1; }
+.emote-grid button small { font-size: .62rem; color: #c8d5d1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* Emote animations float above everything without blocking clicks. */
+.emote-layer { position: fixed; inset: 0; z-index: 11; pointer-events: none; overflow: hidden; }
+.emote-flight { position: absolute; left: 0; top: 0; display: grid; justify-items: center; will-change: transform; }
+.emote-emoji { font-size: 44px; line-height: 1; filter: drop-shadow(0 4px 6px #0007); }
+.emote-label { margin-top: 2px; padding: 2px 9px; border-radius: 10px; background: #fffef7; color: #1d2a2b; font-weight: 700; font-size: .85rem;
+  white-space: nowrap; box-shadow: 0 3px 8px #0006; }
+.emote-piece { position: absolute; left: 0; top: 0; font-size: 22px; line-height: 1; }

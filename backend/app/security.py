@@ -26,6 +26,8 @@ LIMITS = {
     "send-code": (10, 1 / 120),  # Resending sign-up codes and password reset requests, per address.
     "check-code": (20, 1 / 30),  # Entering codes, per address (each code also allows only 5 tries).
     "mail-to": (5, 1 / 300),     # Emails to any one recipient, so nobody can flood an inbox.
+    "chat": (6, 1 / 4),          # Chat messages per seat: 6 quickly, then one every 4 seconds.
+    "emote": (3, 1 / 20),        # Emotes per seat: 3 quickly, then one every 20 seconds.
     "code-tries": (10, 10 / 3600),  # Code guesses per email across all codes: about 240 a day.
 }
 

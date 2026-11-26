@@ -54,6 +54,10 @@ The room's creator chooses whether computer substitutes are on (the default). Ev
 
 Only the room's creator, or the local device, can end a game for everyone.
 
+### Chat and emotes
+
+Online rooms have a chat beside the board on wide screens, or behind a floating button that opens a bottom sheet on narrow ones. It has quick messages and reaction emotes; tapping a player's picture throws an animated emote at them (snake, rocket, tomato, rose, love, party) or, on your own picture, shows a reaction above you. Each seat may send 3 emotes at once and then one every 20 seconds, and 6 messages at once and then one every 4 seconds; messages are up to 200 characters with control and invisible characters removed. Players can hide chat or emotes (saved in the browser) and mute individual players. Chat is deleted with its room.
+
 ### Accounts
 
 Signing up is optional and needs a username, email address and password. The account is created only after the player enters the 6-digit code emailed to them (valid for 10 minutes, 5 tries). **Forgot password?** emails a code that sets a new password and signs out every other device. Players sign in with their username or email. An account keeps a display name and avatar, records finished online games and wins, and lists unfinished online games so they can be resumed on any device; resuming moves the seat and signs the previous device out of that game. Players can change their password (which signs out other devices) or delete their account from the account page.

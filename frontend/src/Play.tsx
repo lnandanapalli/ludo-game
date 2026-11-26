@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { PAWN_COLOR_HEX } from './types'
 import Board from './Board'
-import { ApiError, request, unavailable, type Match, type Session } from './api'
+import { ApiError, request, unavailable, type ChatEvent, type Match, type Session } from './api'
+import ChatPanel from './Chat'
+import EmoteLayer, { type Show } from './EmoteLayer'
+import EmotePicker from './EmotePicker'
+import { ALLOWANCE, loadPrefs, remaining, savePrefs, type ChatPrefs } from './emotes'
+import type { PawnColor } from './types'
 import Confetti from './Confetti'
 import Die from './Die'
 import { Wordmark } from './Nav'
 import SoundToggle from './SoundToggle'
-import { playChanges } from './sound'
+import { chatSound, playChanges } from './sound'
 import { defaultProfile, portraits } from './profiles'
 
 const POLL_MS = 1800
+const WIDE = '(min-width: 1100px)'  // Room beside the board for the chat panel.
 const AUTO_MOVE_RESULT_HOLD_MS = 1000
 const MOVE_WARNING_SECONDS = 5
 function TimerRing({ timer }: { timer: { delay: number; remaining: number; total: number } }) {
@@ -48,6 +54,39 @@ export default function Play({ session, leave, forget }: { session: Session; lea
     movement.onfinish = () => setTravel(null)
     return () => { movement.cancel(); lift?.cancel() }
   }, [travel])
+  // Chat and emotes (online rooms).
+  const [events, setEvents] = useState<ChatEvent[]>([])
+  const lastEvent = useRef(0)
+  const historyLoaded = useRef(false)
+  const [shows, setShows] = useState<Show[]>([])
+  const [prefs, setPrefsState] = useState<ChatPrefs>(loadPrefs)
+  const setPrefs = useCallback((next: ChatPrefs) => { setPrefsState(next); savePrefs(next) }, [])
+  const [muted, setMuted] = useState<Set<PawnColor>>(() => new Set())
+  const [chatOpen, setChatOpenState] = useState(() => window.matchMedia(WIDE).matches)
+  const [unread, setUnread] = useState(0)
+  const setChatOpen = useCallback((open: boolean) => { setChatOpenState(open); if (open) setUnread(0) }, [])
+  const [picker, setPicker] = useState<PawnColor | null>(null)
+  const [sent, setSent] = useState<{ chat: number[]; emote: number[] }>({ chat: [], emote: [] })
+  const [cooldown, setCooldown] = useState({ chat: 0, emote: 0 })
+  const [now, setNow] = useState(() => performance.now())
+  const live = useRef({ prefs, muted, chatOpen, seat: null as PawnColor | null })
+  useEffect(() => { live.current = { prefs, muted, chatOpen, seat: latest.current?.seat ?? null } })
+  const receive = useCallback((incoming: ChatEvent[]) => {
+    const fresh = incoming.filter(e => e.id > lastEvent.current)
+    if (!fresh.length && historyLoaded.current) return
+    lastEvent.current = Math.max(lastEvent.current, ...fresh.map(e => e.id))
+    setEvents(list => [...list, ...fresh.filter(e => !list.some(old => old.id === e.id))].slice(-200))
+    if (!historyLoaded.current) { historyLoaded.current = true; return }  // History: no replays or badges.
+    const { prefs, muted, chatOpen, seat } = live.current
+    for (const e of fresh) {
+      if (e.seat === seat || muted.has(e.seat)) continue
+      if (e.kind === 'emote' && prefs.emotes) setShows(list => [...list, { key: e.id, emote: e.body, from: e.seat, to: e.target }])
+      if (e.kind === 'chat' && prefs.chat) {
+        if (!chatOpen) setUnread(n => n + 1)
+        chatSound()
+      }
+    }
+  }, [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [timer, setTimer] = useState<{ revision: number; phase: Match['phase']; delay: number; remaining: number; total: number } | null>(null)
@@ -111,9 +150,9 @@ export default function Play({ session, leave, forget }: { session: Session; lea
     async function refresh() {
       let wait = POLL_MS
       try {
-        const next = await request<Match>(path, session.token)
+        const next = await request<Match>(path + '?events_after=' + lastEvent.current, session.token)
         failures = 0
-        if (active) { accept(next); setError('') }
+        if (active) { accept(next); if (next.events) receive(next.events); setError('') }
       } catch (e) {
         if (active && unavailable(e)) { active = false; forget((e as Error).message); return }
         // Back off while rate limited or offline instead of hammering the server.
@@ -127,7 +166,42 @@ export default function Play({ session, leave, forget }: { session: Session; lea
     }
     void refresh()
     return () => { active = false; clearTimeout(timer); clearTimeout(animation.current) }
-  }, [accept, forget, path, session.token])
+  }, [accept, receive, forget, path, session.token])
+  const online = game?.mode === 'online'
+  // Keep the emote and chat allowances (and their countdowns) current.
+  useEffect(() => {
+    if (!online) return
+    const id = window.setInterval(() => setNow(performance.now()), 1000)
+    return () => clearInterval(id)
+  }, [online])
+  const allowance = (kind: 'chat' | 'emote') => {
+    const local = remaining(sent[kind], kind, now)
+    return now < cooldown[kind] ? { left: 0, wait: Math.ceil((cooldown[kind] - now) / 1000) } : local
+  }
+  async function post(kind: 'chat' | 'emote', body: object) {
+    try {
+      const posted = await request<ChatEvent>(path + '/' + kind, session.token, body)
+      const at = performance.now()
+      setSent(s => ({ ...s, [kind]: [...s[kind], at].slice(-ALLOWANCE[kind].burst * 2) }))
+      setNow(at)
+      setEvents(list => list.some(e => e.id === posted.id) ? list : [...list, posted].slice(-200))
+      return posted
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 429) setCooldown(c => ({ ...c, [kind]: performance.now() + (e.retryAfter || 5) * 1000 }))
+      throw e
+    }
+  }
+  const sendChat = async (text: string) => { await post('chat', { text }) }
+  const sendEmote = async (emote: string, target: PawnColor | null = null) => {
+    const posted = await post('emote', { emote, target })
+    if (prefs.emotes) setShows(list => [...list, { key: posted.id, emote, from: posted.seat, to: target }])
+  }
+  const finishShow = useCallback((key: number) => setShows(list => list.filter(s => s.key !== key)), [])
+  const toggleMute = (seat: PawnColor) => setMuted(old => {
+    const next = new Set(old)
+    if (!next.delete(seat)) next.add(seat)
+    return next
+  })
 
   async function act(action: 'roll' | 'move', pawn?: number) {
     if (!game || busy || travel || rolling) return
@@ -150,10 +224,16 @@ export default function Play({ session, leave, forget }: { session: Session; lea
 
   const ownTurn = game?.mode === 'local' || game?.seat === game?.current
   const active = travel?.before.pawns.find(p => p.id === travel.move.pawn)?.color ?? roller ?? game?.current
-  return <main className="match">
+  return <div className="play-page" data-chat={online ? (chatOpen ? 'open' : 'closed') : undefined}><main className="match">
     <header><h1><Wordmark/></h1>{(!game || !game.ready || game.phase === 'won') && <button className="quiet" onClick={leave}>Back to lobby</button>}<div className="match-menu">
       <button type="button" className="quiet" aria-label="Game settings" popoverTarget="game-settings">•••</button>
       <div id="game-settings" popover="auto"><SoundToggle/>
+        {online && <>
+          <label className="preference">Chat messages
+            <input type="checkbox" checked={prefs.chat} onChange={e => setPrefs({ ...prefs, chat: e.target.checked })} /></label>
+          <label className="preference">Emotes
+            <input type="checkbox" checked={prefs.emotes} onChange={e => setPrefs({ ...prefs, emotes: e.target.checked })} /></label>
+        </>}
         <button type="button" className="quiet" onClick={async () => {
           const online = game?.mode === 'online' && game.phase !== 'won'
           if (!window.confirm(online
@@ -180,9 +260,15 @@ export default function Play({ session, leave, forget }: { session: Session; lea
         const profile = game.profiles[color] || defaultProfile(color)
         const status = game.presence[color]
         return <div key={color} className="seat-card" data-seat={color} data-active={game.ready && active === color} data-presence={status}>
-          <span className="portrait">{portraits[profile.avatar]}
-            {timer?.phase === 'move' && game.phase === 'move' && color === game.current && <TimerRing key={timer.revision} timer={timer} />}
-          </span>
+          {(() => {
+            const portrait = <span className="portrait">{portraits[profile.avatar]}
+              {timer?.phase === 'move' && game.phase === 'move' && color === game.current && <TimerRing key={timer.revision} timer={timer} />}
+            </span>
+            const reachable = online && game.colors.indexOf(color) < game.joined && !game.out?.includes(color)
+            return reachable ? <button type="button" className="portrait-button" aria-haspopup="dialog"
+              aria-label={color === game.seat ? 'Send a reaction' : `Send an emote to ${profile.name.trim() || color}`}
+              onClick={() => setPicker(picker === color ? null : color)}>{portrait}</button> : portrait
+          })()}
           {status && status !== 'online' && <small className="presence">{presenceLabels[status]}</small>}
           <strong>{profile.name.trim() || color}</strong>
           <span className="home-dots" aria-label={game.pawns.filter(p => p.color === color && p.step === 56).length + ' home'}>
@@ -215,5 +301,12 @@ export default function Play({ session, leave, forget }: { session: Session; lea
       <span className="sr-only" aria-live="polite">{game.message}</span>
     </>}
   </main>
+    {game && online && <ChatPanel game={game} events={events} prefs={prefs} setPrefs={setPrefs} muted={muted}
+      toggleMute={toggleMute} open={chatOpen} setOpen={setChatOpen} unread={unread} sendChat={sendChat}
+      sendEmote={id => sendEmote(id)} chat={allowance('chat')} emote={allowance('emote')} />}
+    {game && picker && <EmotePicker key={picker} game={game} seat={picker} muted={muted.has(picker)} toggleMute={() => toggleMute(picker)}
+      emote={allowance('emote')} send={sendEmote} close={() => setPicker(null)} />}
+    <EmoteLayer shows={shows} done={finishShow} />
+  </div>
 }
 

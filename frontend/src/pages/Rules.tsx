@@ -29,5 +29,12 @@ export default function Rules() {
       <li><em>Leave game</em> gives up your seat for good. When only one player remains, they win.</li>
       <li>Turn on <em>Move automatically</em> to skip the tap when only one pawn can move.</li>
     </ul>
+    <h3>Chat and emotes</h3>
+    <ul>
+      <li>Online rooms have a chat: beside the board on wide screens, or behind the 💬 button on phones.</li>
+      <li>Tap a player’s picture to send them an emote: a snake slithers over, a tomato splats, a rose floats across. Tap your own picture for a reaction like “Oooo!” or “How’s that?”.</li>
+      <li>You get 3 emotes at once, then one more every 20 seconds, and up to 6 quick messages, then one every 4 seconds.</li>
+      <li>Hide chat or emotes from the ••• menu or the chat’s ⚙︎ settings, and mute any player from their picture or the chat settings.</li>
+    </ul>
   </article>
 }

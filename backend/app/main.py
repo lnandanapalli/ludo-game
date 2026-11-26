@@ -10,13 +10,14 @@ from time import monotonic
 from dataclasses import fields
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .accounts import Profile, optional_account, required_account, resolve, router as accounts_router
+from . import chat
 from .db import database
 from .migrate import migrate
 from .game import COLORS, Game
@@ -108,6 +109,15 @@ class Setup(BaseModel):
 class JoinSetup(BaseModel):
     profile: Profile | None = None
     auto_move: bool = False
+
+
+class ChatIn(BaseModel):
+    text: str = Field(min_length=1, max_length=400)
+
+
+class EmoteIn(BaseModel):
+    emote: Literal[chat.EMOTES]
+    target: Color | None = None
 
 
 class Command(BaseModel):
@@ -328,7 +338,8 @@ def reclaim(room: str, account: Annotated[int, Depends(required_account)]):
 
 
 @app.get("/rooms/{room}")
-def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = False):
+def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = False,
+         events_after: int = Query(default=0, ge=0)):
     with database() as db:
         row, game, seats = load(db, room, lock=not preview)
         result = snapshot(row, game, seats, key)
@@ -373,7 +384,44 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
             if saved or changed:
                 row = save(db, room, game, bump=changed)
                 result = snapshot(row, game, seats, key)
+        if not preview and row["mode"] == "online":
+            result["events"] = chat.recent(db, room, events_after)
         return result
+
+
+def speaker(db, room, key, kind):
+    """Authorize a chat or emote from this seat and apply its strict per-seat allowance."""
+    row, game, seats = load(db, room)
+    color = snapshot(row, game, seats, key)["seat"]
+    if row["mode"] != "online":
+        raise HTTPException(409, "Chat is only available in online rooms.")
+    wait = limiter.hit(kind, key)
+    if wait:
+        what = "messages" if kind == "chat" else "emotes"
+        raise HTTPException(429, f"Too many {what}. More in {wait} seconds.", headers={"Retry-After": str(wait)})
+    return game, seats, color
+
+
+@app.post("/rooms/{room}/chat", status_code=201)
+def send_chat(room: str, message: ChatIn, key: Annotated[str, Depends(credential)]):
+    text = chat.clean(message.text)
+    if not text or len(text) > chat.MAX_LENGTH:
+        raise HTTPException(422, f"Messages must be 1 to {chat.MAX_LENGTH} characters.")
+    with database() as db:
+        _, _, color = speaker(db, room, key, "chat")
+        return chat.add(db, room, "chat", color, text)
+
+
+@app.post("/rooms/{room}/emote", status_code=201)
+def send_emote(room: str, emote: EmoteIn, key: Annotated[str, Depends(credential)]):
+    with database() as db:
+        game, seats, color = speaker(db, room, key, "emote")
+        target = emote.target
+        if target is not None and (target == color or target not in game.colors[:len(seats)] or target in game.out):
+            raise HTTPException(422, "Choose another player in this game.")
+        if target is None and emote.emote in chat.THROWS:
+            raise HTTPException(422, "Choose a player to send that to.")
+        return chat.add(db, room, "emote", color, emote.emote, target)
 
 
 @app.post("/rooms/{room}/leave")

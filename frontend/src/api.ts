@@ -28,6 +28,17 @@ export interface Match {
   presence: Partial<Record<PawnColor, 'online' | 'offline' | 'left' | 'computer'>>
   turn_seconds: number
   turn_remaining: number | null
+  /** Chat and emotes newer than the poll's events_after (online rooms only). */
+  events?: ChatEvent[]
+}
+
+export interface ChatEvent {
+  id: number
+  kind: 'chat' | 'emote'
+  seat: PawnColor
+  target: PawnColor | null
+  body: string
+  at: number
 }
 
 export interface Account {

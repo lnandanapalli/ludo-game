@@ -104,3 +104,14 @@ export function playChanges(old: Match, next: Match, landing?: number) {
   else if (changes.some(p => p.step === -1)) notes([523, 330, 196], 0.07, 0.12, delay)
   else if (changes.length) notes([440, 554], 0.045, 0.08, delay)
 }
+
+/** A soft chime for friendly emotes, a quick pop for throws landing. */
+export function emoteSound(soft: boolean) {
+  if (soft) notes([784, 1047], 0.07, 0.12)
+  else notes([330, 247], 0.04, 0.09)
+}
+
+/** A quiet tick for an incoming chat message. */
+export function chatSound() {
+  notes([1175], 0, 0.05)
+}
