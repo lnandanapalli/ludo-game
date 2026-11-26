@@ -1,0 +1,20 @@
+.die-3d { --s: clamp(35px, 6vw, 48px); display: block; width: var(--s); height: var(--s); perspective: calc(var(--s) * 5); }
+.cube { position: relative; display: block; width: 100%; height: 100%; transform-style: preserve-3d;
+  transition: transform .5s cubic-bezier(.2, .9, .3, 1.12); }
+.die-3d .cube .die-face { position: absolute; inset: 0; width: 100%; height: 100%; padding: calc(var(--s) * .15); gap: 1px;
+  border-radius: calc(var(--s) * .2); backface-visibility: hidden; box-shadow: inset 0 0 0 1px #d4cfbf, inset 0 -3px 6px #b6b09e66; }
+.die-3d .cube .die-face i { box-shadow: inset 0 1px 1px #000a; }
+.cube [data-face="1"] { transform: translateZ(calc(var(--s) / 2)); }
+.cube [data-face="6"] { transform: rotateY(180deg) translateZ(calc(var(--s) / 2)); }
+.cube [data-face="2"] { transform: rotateY(90deg) translateZ(calc(var(--s) / 2)); }
+.cube [data-face="5"] { transform: rotateY(-90deg) translateZ(calc(var(--s) / 2)); }
+.cube [data-face="3"] { transform: rotateX(90deg) translateZ(calc(var(--s) / 2)); }
+.cube [data-face="4"] { transform: rotateX(-90deg) translateZ(calc(var(--s) / 2)); }
+.cube[data-rolling] { animation: cube-tumble .45s linear infinite; transition: none; }
+@keyframes cube-tumble {
+  from { transform: rotateX(0) rotateY(0) rotateZ(0); }
+  to { transform: rotateX(360deg) rotateY(720deg) rotateZ(180deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cube, .cube[data-rolling] { transition: none; animation: none; }
+}

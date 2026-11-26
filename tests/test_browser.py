@@ -80,7 +80,7 @@ def test_online_and_local():
         roll = host.get_by_role("button", name="Roll die")
         for _ in range(100):
             roll.click()
-            host.wait_for_function("document.querySelector('.board-choice') || document.querySelector('.controls button:enabled')")
+            expect(host.locator(".board-choice, .controls button:enabled").first).to_be_attached()
             if host.locator(".board-choice").count():
                 break
         host.locator(".board-choice").first.click()
@@ -177,7 +177,7 @@ def test_automatic_move_holds_result_at_rollers_seat():
             route.fulfill(json=state)
         page.route("**/actions", auto_move)
         roll.click()
-        expect(page.locator(".rest .die-face i")).to_have_count(3)
+        expect(page.locator(".rest .cube[data-value=\"3\"]")).to_have_count(1)
         dock = page.locator(".dice-dock")
         expect(dock).to_have_attribute("data-seat", "red")
         pawn = page.locator(".traveling-pawn")
@@ -229,4 +229,92 @@ def test_leaving_without_substitutes_removes_pawns():
         expect(green.get_by_role("alert")).to_have_text("You left the game.")
         expect(host.locator('.seat-card[data-seat="green"] .presence')).to_have_text("Left")
         expect(host.locator('.pawn-icon[aria-label="green pawn"]')).to_have_count(0)
+        browser.close()
+
+
+def test_menu_pages_and_deep_links():
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
+        page = browser.new_page()
+        base = os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173")
+        page.goto(base)
+        nav = page.get_by_role("navigation", name="Main")
+        nav.get_by_role("link", name="How to play").click()
+        expect(page).to_have_url(base + "/rules")
+        expect(page.get_by_role("heading", name="How to play")).to_be_visible()
+        nav.get_by_role("link", name="About").click()
+        expect(page.get_by_role("heading", name="Privacy")).to_be_visible()
+        page.go_back()
+        expect(page.get_by_role("heading", name="How to play")).to_be_visible()
+        page.goto(base + "/about")
+        expect(page.get_by_role("heading", name="About", exact=True)).to_be_visible()
+        nav.get_by_role("link", name="Play", exact=True).click()
+        expect(page.get_by_text("Pass and play")).to_be_visible()
+        for width in (375, 1280):
+            page.set_viewport_size({"width": width, "height": 800})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        browser.close()
+
+
+def test_account_resumes_online_game_on_another_device():
+    import secrets
+    username = "e2e_" + secrets.token_hex(4)
+    base = os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173")
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
+        laptop = browser.new_page()
+        laptop.goto(base + "/account")
+        laptop.get_by_role("button", name="Create account").first.click()
+        laptop.get_by_label("Username").fill(username)
+        laptop.get_by_label("Password", exact=True).fill("a long password")
+        laptop.get_by_label("Confirm password").fill("a long password")
+        laptop.locator("form").get_by_role("button", name="Create account").click()
+        expect(laptop.get_by_role("heading", name="Hi, " + username)).to_be_visible()
+        laptop.get_by_label("Display name").fill("Nova")
+        laptop.get_by_role("button", name="owl").click()
+        laptop.get_by_role("button", name="Save profile").click()
+        expect(laptop.get_by_role("status")).to_have_text("Saved.")
+        laptop.get_by_role("navigation", name="Main").get_by_role("link", name="Play", exact=True).click()
+        laptop.get_by_role("button", name="Online", exact=True).click()
+        expect(laptop.get_by_label("red player name")).to_have_value("Nova")
+        laptop.get_by_text("Create online room").click()
+        expect(laptop.get_by_label("Invite link")).to_be_visible()
+        # The same account on a second device takes the seat over.
+        phone = browser.new_page(viewport={"width": 390, "height": 844})
+        phone.goto(base + "/account")
+        phone.get_by_label("Username").fill(username.upper())
+        phone.get_by_label("Password", exact=True).fill("a long password")
+        phone.locator("form").get_by_role("button", name="Sign in").click()
+        expect(phone.get_by_role("navigation", name="Main")).to_contain_text(username)
+        phone.get_by_role("navigation", name="Main").get_by_role("link", name="Play", exact=True).click()
+        phone.get_by_role("button", name="Online", exact=True).click()
+        games = phone.get_by_role("region", name="Your online games")
+        expect(games).to_contain_text("Nova")
+        games.get_by_role("button", name="Resume").click()
+        expect(phone.get_by_label("Invite link")).to_be_visible()
+        expect(phone.locator('.seat-card[data-seat="red"]')).to_contain_text("Nova")
+        # The first device's seat stops working and it returns to the lobby.
+        expect(laptop.get_by_role("alert")).to_have_text("This seat belongs to another session.", timeout=8000)
+        browser.close()
+
+
+def test_victory_shows_confetti_and_lobby_button():
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
+        page = browser.new_page()
+        page.goto(os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173"))
+        page.get_by_text("Pass and play").click()
+        roll = page.get_by_role("button", name="Roll die")
+        expect(roll).to_be_enabled()
+        room = page.evaluate("JSON.parse(localStorage.getItem('ludo-seat')).room")
+        def won(route):
+            state = route.fetch().json()
+            state.update(phase="won", current="yellow", revision=state["revision"] + 1, message="Yellow wins!")
+            route.fulfill(json=state)
+        page.route("**/rooms/" + room + "*", won)
+        victory = page.locator(".victory")
+        expect(victory).to_contain_text("Yellow wins!")
+        expect(page.locator("canvas.confetti")).to_have_count(1)
+        victory.get_by_role("button", name="Back to lobby").click()
+        expect(page.get_by_text("Pass and play")).to_be_visible()
         browser.close()

@@ -1,38 +1,86 @@
 """HTTP API for local matches and invite-only online rooms."""
 import hashlib
 import os
+import re
 import secrets
+import threading
 import time
+from time import monotonic
 from dataclasses import fields
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-
 from psycopg.types.json import Jsonb
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
+from .accounts import Profile, optional_account, required_account, resolve, router as accounts_router
 from .db import database
-from .game import Game
+from .game import COLORS, Game
+from .security import BodyLimit, SecurityHeaders, client_ip, limiter, send_json
+
+Color = Literal[COLORS]
+
+# Rate-limit groups by route. Sign-up and sign-in always count per address.
+LIMITED = [
+    ("POST", re.compile(r"^/accounts$"), "signup", True),
+    ("POST", re.compile(r"^/sessions$"), "login", True),
+    ("POST", re.compile(r"^/rooms$"), "create", False),
+    ("POST", re.compile(r"^/rooms/[^/]+/join$"), "join", False),
+    ("POST", re.compile(r"^/rooms/[^/]+/(actions|reclaim)$"), "action", False),
+    (None, re.compile(r"^/me(/|$)"), "account", False),
+]
+
+
+class RateLimit:
+    """Signed-in players are limited per account, everyone else per client address."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] == "OPTIONS" or scope["path"] == "/health":
+            return await self.app(scope, receive, send)
+        address = "ip:" + client_ip(scope)
+        token = dict(scope.get("headers") or []).get(b"x-account-token", b"").decode("latin-1")
+        account = None
+        if token:
+            try:
+                account = await run_in_threadpool(resolve, token)
+            except Exception:  # A database hiccup falls back to the address.
+                account = None
+        key = f"account:{account}" if account else address
+        checks = [("general", key)]
+        for method, pattern, name, by_address in LIMITED:
+            if (method is None or method == scope["method"]) and pattern.match(scope["path"]):
+                checks.append((name, address if by_address else key))
+        for name, bucket in checks:
+            wait = limiter.hit(name, bucket)
+            if wait:
+                return await send_json(send, 429, {"detail": f"Too many requests. Try again in {wait} seconds."},
+                                       [(b"retry-after", str(wait).encode())])
+        await self.app(scope, receive, send)
 
 
 app = FastAPI(title="Ludo")
+app.include_router(accounts_router)
+# The last middleware added runs first: CORS wraps everything so even 429 and 413 replies reach the browser.
+app.add_middleware(RateLimit)
+app.add_middleware(BodyLimit)
+app.add_middleware(SecurityHeaders)
 app.add_middleware(CORSMiddleware, allow_origins=[
     origin.strip() for origin in os.getenv("LUDO_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
-], allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
-
-
-class Profile(BaseModel):
-    name: str = Field(default="", max_length=24)
-    avatar: Literal["fox", "panda", "tiger", "frog", "owl", "koala"] = "fox"
+], allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "X-Account-Token"], expose_headers=["Retry-After"], max_age=600)
 
 
 class Setup(BaseModel):
     substitutes: bool = False
-    profiles: dict[str, Profile] = Field(default_factory=dict)
+    profiles: dict[Color, Profile] = Field(default_factory=dict)
     players: int = Field(ge=2, le=4)
     mode: Literal["local", "online"]
-    auto_move: dict[str, bool] = Field(default_factory=dict)
+    auto_move: dict[Color, bool] = Field(default_factory=dict)
 
 
 class JoinSetup(BaseModel):
@@ -57,6 +105,8 @@ def credential(authorization: Annotated[str, Header()] = ""):
 
 
 def load(db, room, *, lock=False):
+    if not re.fullmatch(r"[0-9a-f]{10}", room):
+        raise HTTPException(404, "Room not found.")
     query = "SELECT * FROM ludo.rooms WHERE id=%s"
     row = db.execute(query + (" FOR UPDATE" if lock else ""), (room,)).fetchone()
     if row is None:
@@ -134,6 +184,40 @@ def start_timer(game, now, before):
     game.turn_started = now + settle
 
 
+def save(db, room, game, *, seats=None, bump=True):
+    """Store the room; when the game has just been won, record each signed-in player's result."""
+    row = db.execute("UPDATE ludo.rooms SET state=%s, seats=COALESCE(%s, seats), revision=revision+%s, "
+                     "updated_at=now() WHERE id=%s RETURNING *",
+                     (Jsonb(game.dump()), None if seats is None else Jsonb(seats), int(bump), room)).fetchone()
+    if game.phase == "won":
+        db.execute("UPDATE ludo.room_players SET result = CASE WHEN color=%s THEN 'won' ELSE 'lost' END "
+                   "WHERE room_id=%s AND result IS NULL", (game.current, room))
+    return row
+
+
+def link(db, room, account, color):
+    if account is not None:
+        db.execute("INSERT INTO ludo.room_players(room_id, account_id, color) VALUES(%s,%s,%s) "
+                   "ON CONFLICT DO NOTHING", (room, account, color))
+
+
+_last_cleanup = [0.0]
+_cleanup_lock = threading.Lock()
+
+
+def cleanup(db):
+    """At most every ten minutes, drop finished rooms after two days and idle rooms after thirty."""
+    with _cleanup_lock:
+        if monotonic() - _last_cleanup[0] < 600:
+            return
+        _last_cleanup[0] = monotonic()
+    stale = ("updated_at < now() - interval '30 days' "
+             "OR (state->>'phase' = 'won' AND updated_at < now() - interval '2 days')")
+    db.execute(f"DELETE FROM ludo.room_players p USING ludo.rooms r WHERE p.room_id = r.id "
+               f"AND p.result IS NULL AND ({stale})")
+    db.execute(f"DELETE FROM ludo.rooms WHERE {stale}")
+
+
 def progress(game):
     return game.roll_number, (game.last_move or {}).get("roll")
 
@@ -146,13 +230,6 @@ def play_for(game):
         game.move(secrets.choice(game.legal()))
 
 
-@app.middleware("http")
-async def no_cache(request, call_next):
-    response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
 @app.get("/health")
 def health():
     with database() as db:
@@ -161,7 +238,7 @@ def health():
 
 
 @app.post("/rooms", status_code=201)
-def create(setup: Setup):
+def create(setup: Setup, account: Annotated[int | None, Depends(optional_account)]):
     room = secrets.token_hex(5)
     token = secrets.token_urlsafe(32)
     game = Game.new(setup.players)
@@ -174,13 +251,16 @@ def create(setup: Setup):
     game.profiles = {c: setup.profiles[c].model_dump() for c in eligible if c in setup.profiles}
     game.auto_move = {c: setup.auto_move.get(c, False) for c in eligible}
     with database() as db:
+        cleanup(db)
         db.execute("INSERT INTO ludo.rooms(id,mode,seats,state) VALUES(%s,%s,%s,%s)",
                    (room, setup.mode, Jsonb([digest(token)]), Jsonb(game.dump())))
+        if setup.mode == "online":
+            link(db, room, account, game.colors[0])
     return {"room": room, "token": token}
 
 
 @app.post("/rooms/{room}/join", status_code=201)
-def join(room: str, setup: JoinSetup | None = None):
+def join(room: str, account: Annotated[int | None, Depends(optional_account)], setup: JoinSetup | None = None):
     token = secrets.token_urlsafe(32)
     with database() as db:
         row, game, seats = load(db, room, lock=True)
@@ -193,12 +273,33 @@ def join(room: str, setup: JoinSetup | None = None):
         if setup and setup.profile:
             game.profiles[game.colors[len(seats)]] = setup.profile.model_dump()
         game.auto_move[game.colors[len(seats)]] = bool(setup and setup.auto_move)
+        link(db, room, account, game.colors[len(seats)])
         seats.append(digest(token))
         if len(seats) == len(game.colors):
             game.started_at = game.turn_started = time.time()
-        db.execute("UPDATE ludo.rooms SET seats=%s, state=%s, revision=revision+1 WHERE id=%s",
-                   (Jsonb(seats), Jsonb(game.dump()), room))
+        save(db, room, game, seats=seats)
     return {"room": room, "token": token}
+
+
+@app.post("/rooms/{room}/reclaim", status_code=201)
+def reclaim(room: str, account: Annotated[int, Depends(required_account)]):
+    """Move a signed-in player's seat to this device; the previous device's credential stops working."""
+    with database() as db:
+        row, game, seats = load(db, room, lock=True)
+        mine = db.execute("SELECT color FROM ludo.room_players WHERE room_id=%s AND account_id=%s",
+                          (room, account)).fetchone()
+        if mine is None:
+            raise HTTPException(404, "You have no seat in this room.")
+        color = mine["color"]
+        if game.phase == "won":
+            raise HTTPException(410, "This game has finished.")
+        if color in game.quit or color in game.out:
+            raise HTTPException(410, "You left this game.")
+        token = secrets.token_urlsafe(32)
+        seats[game.colors.index(color)] = digest(token)
+        game.last_seen[color] = time.time()
+        save(db, room, game, seats=seats)
+    return {"room": room, "token": token, "mode": row["mode"]}
 
 
 @app.get("/rooms/{room}")
@@ -245,8 +346,7 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
                 if changed and progress(game) != before:
                     start_timer(game, now, before)
             if saved or changed:
-                row = db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+%s WHERE id=%s RETURNING *",
-                                 (Jsonb(game.dump()), int(changed), room)).fetchone()
+                row = save(db, room, game, bump=changed)
                 result = snapshot(row, game, seats, key)
         return result
 
@@ -267,7 +367,7 @@ def leave(room: str, key: Annotated[str, Depends(credential)]):
                 game.remove(color, "left the game")
                 if game.current != current:
                     game.turn_started = time.time()
-            db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+1 WHERE id=%s", (Jsonb(game.dump()), room))
+            save(db, room, game)
     return {"ended": False}
 
 
@@ -277,6 +377,7 @@ def end(room: str, key: Annotated[str, Depends(credential)]):
         row, game, seats = load(db, room, lock=True)
         if not snapshot(row, game, seats, key)["can_end"]:
             raise HTTPException(403, "Only the room creator can end the game.")
+        db.execute("DELETE FROM ludo.room_players WHERE room_id=%s AND result IS NULL", (room,))
         db.execute("DELETE FROM ludo.rooms WHERE id=%s", (room,))
     return {"ended": True}
 
@@ -304,5 +405,4 @@ def act(room: str, command: Command, key: Annotated[str, Depends(credential)]):
         start_timer(game, now, before)
         if row["mode"] == "online":
             game.last_seen[state["seat"]] = now
-        db.execute("UPDATE ludo.rooms SET state=%s, revision=revision+1 WHERE id=%s", (Jsonb(game.dump()), room))
-        return snapshot(*load(db, room), key)
+        return snapshot(save(db, room, game), game, seats, key)

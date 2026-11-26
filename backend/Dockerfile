@@ -11,6 +11,8 @@ COPY app ./app
 RUN useradd --system --no-create-home ludo
 USER ludo
 
+# The image runs behind one reverse proxy (such as Azure App Service) that appends the
+# client address to X-Forwarded-For. The app reads that entry for rate limiting.
+ENV LUDO_PROXY_HOPS=1
 EXPOSE 8000
-# App Service terminates TLS in front of the container and forwards the original scheme.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]

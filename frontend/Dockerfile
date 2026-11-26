@@ -9,8 +9,13 @@ ARG VITE_API_URL
 RUN test -n "$VITE_API_URL" || { echo "Pass --build-arg VITE_API_URL=https://<api host>"; exit 1; }
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
+# Allow the page to call only its own API origin.
+RUN API_ORIGIN=$(node -p "new URL(process.env.VITE_API_URL).origin") \
+ && sed "s|__API_ORIGIN__|$API_ORIGIN|" security-headers.conf > /tmp/security-headers.conf \
+ && grep -q "connect-src 'self' http" /tmp/security-headers.conf
 
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /tmp/security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

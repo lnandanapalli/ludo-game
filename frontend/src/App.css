@@ -103,10 +103,9 @@ input:not([type=checkbox]) { display: block; width: 100%; padding: .75rem; margi
 .dice-dock:is([data-seat=blue],[data-seat=green]) { margin-top: 27px; }
 .dice-dock .roll { min-width: 42px; min-height: 44px; padding: 3px; }
 .dice-dock .roll:disabled { opacity: 1; }
-.dice-dock .die-face { width: clamp(35px,6vw,48px); height: auto; aspect-ratio: 1; padding: 7px; }
 .tumble,.rest { display: block; }
-.tumble { animation: tumble .62s cubic-bezier(.25,.6,.38,1) infinite; }
-@keyframes tumble { 0% { transform: rotate(0); } 30% { transform: translateY(-10px) rotate(120deg) rotateX(58deg); } 70% { transform: rotate(282deg) rotateY(52deg); } 100% { transform: rotate(360deg); } }
+.tumble { animation: tumble .45s ease-in-out infinite; }
+@keyframes tumble { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-9px); } }
 @keyframes beacon { to { box-shadow: 0 0 0 4px color-mix(in srgb,var(--seat) 30%,transparent), 0 0 16px var(--seat); } }
 .victory { text-align: center; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
@@ -134,3 +133,58 @@ input:not([type=checkbox]) { display: block; width: 100%; padding: .75rem; margi
 .saved-actions button:last-child { background: transparent; border: 0; min-width: 44px; }
 
 .traveling-pawn { position: absolute; top: 0; left: 0; width: calc(100% / 15); height: calc(100% / 15); display: grid; place-items: center; pointer-events: none; z-index: 2; }
+
+/* Site navigation */
+header h1 { margin: 0; font-size: inherit; }
+.site-header { flex-wrap: wrap; gap: .5rem 1rem; }
+.home-link { color: inherit; text-decoration: none; }
+.site-header nav { display: flex; flex-wrap: wrap; gap: .25rem; }
+.site-header nav a { display: inline-flex; align-items: center; min-height: 44px; padding: .4rem .8rem; border-radius: 10px;
+  color: #d8e3df; text-decoration: none; font-weight: 500; }
+.site-header nav a:hover { background: #ffffff10; }
+.site-header nav a[aria-current=page] { background: #344647; color: #fff; }
+.site-header nav .account-link { border: 1px solid #576666; }
+a { color: #f5d783; }
+a:focus-visible { outline: 3px solid #ffdb69; outline-offset: 2px; border-radius: 6px; }
+@media (max-width: 620px) {
+  .site-header { justify-content: center; }
+  .site-header nav { justify-content: center; }
+  .site-header nav a { padding: .35rem .6rem; font-size: .92rem; }
+}
+
+/* Content pages */
+.page { margin-top: 1rem; line-height: 1.55; }
+.page h3 { margin: 1.4rem 0 .4rem; font-size: 1.05rem; color: #f5d783; }
+.page ul { padding-left: 1.2rem; margin: .3rem 0; }
+.page li { margin: .3rem 0; }
+.page.panel > p:first-of-type { margin-top: 0; }
+.page-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.page-title h2 { margin: 0; overflow-wrap: anywhere; }
+.account-page { display: grid; gap: 1rem; }
+.account-page .panel h3 { margin-top: 0; }
+.account-forms { max-width: 460px; }
+.account-forms form, .account-page form { display: grid; gap: .4rem; }
+.field { display: grid; gap: .1rem; font-size: .92rem; }
+.hint { color: #bacbc8; font-size: .9rem; }
+.danger { margin-top: 1rem; background: transparent; border-color: #a0504a; color: #ffb4ab; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: .5rem; }
+.stats strong { display: block; font-size: 1.8rem; }
+.stats small { color: #bacbc8; }
+[role=status] { color: #bfe8c8; margin: .5rem 0 0; }
+
+/* Signed-in player's games */
+.your-games { display: block; }
+.your-games ul { list-style: none; margin: .5rem 0 0; padding: 0; display: grid; gap: .4rem; }
+.your-games li { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.your-games li > span { overflow-wrap: anywhere; }
+.seat-dot { display: inline-block; width: .7rem; height: .7rem; margin-right: .45rem; border-radius: 50%; background: var(--seat); }
+
+/* Victory */
+.victory { position: fixed; left: 50%; bottom: max(1rem, env(safe-area-inset-bottom)); z-index: 5; transform: translateX(-50%);
+  width: min(92vw, 380px); display: grid; gap: .6rem; padding: 1rem 1.2rem; text-align: center;
+  border: 1px solid #f5d783; border-radius: 18px; background: #233435ee; box-shadow: 0 10px 30px #0008;
+  animation: victory-in .5s cubic-bezier(.2,.9,.3,1.2) both; }
+.victory h2 { margin: 0; font-size: 1.5rem; }
+@keyframes victory-in { from { opacity: 0; transform: translate(-50%, 40px) scale(.9); } }
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100dvh; pointer-events: none; z-index: 6; }
+@media (prefers-reduced-motion: reduce) { .victory { animation: none; } }
