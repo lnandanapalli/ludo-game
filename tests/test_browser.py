@@ -390,14 +390,17 @@ def test_chat_emotes_limits_and_muting():
         # Tap a player's picture to throw an emote at them; it flies across the other screen too.
         guest.get_by_role("button", name="Send an emote to Nova").click()
         guest.get_by_role("dialog", name="Send an emote to Nova").get_by_role("button", name="Snake").click()
+        expect(guest.get_by_role("dialog")).to_have_count(0)  # The picker closes once the emote is sent.
         expect(host.locator(".emote-flight")).to_have_count(1)
         expect(host_log).to_contain_text("Mika sent a sneaky snake to You 🐍")
         # Three emotes, then the allowance runs out for a while.
         guest.get_by_role("button", name="Send a reaction").click()
         guest.get_by_role("dialog", name="Send a reaction").get_by_role("button", name="Oooo!").click()
+        expect(guest.get_by_role("dialog")).to_have_count(0)
         guest.get_by_role("button", name="Send a reaction").click()
         picker = guest.get_by_role("dialog", name="Send a reaction")
         picker.get_by_role("button", name="Haha!").click()
+        expect(guest.get_by_role("dialog")).to_have_count(0)
         guest.get_by_role("button", name="Send a reaction").click()
         expect(picker).to_contain_text("More emotes in")
         expect(picker.get_by_role("button", name="Haha!")).to_be_disabled()

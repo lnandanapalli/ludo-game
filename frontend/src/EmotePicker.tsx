@@ -10,6 +10,7 @@ export default function EmotePicker({ game, seat, muted, toggleMute, emote, send
 }) {
   const panel = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
+  const [sending, setSending] = useState(false)
   const self = seat === game.seat
   useLayoutEffect(() => {
     // Anchor to the whole player card so the name stays visible.
@@ -34,9 +35,11 @@ export default function EmotePicker({ game, seat, muted, toggleMute, emote, send
   return <div ref={panel} className="emote-picker" role="dialog" aria-label={self ? 'Send a reaction' : `Send an emote to ${seatName(game, seat)}`}>
     <p className="emote-picker-title">{self ? 'React' : <>Send to <strong>{seatName(game, seat)}</strong></>}</p>
     <div className="emote-grid">
-      {choices.map(e => <button key={e.id} type="button" title={e.label} aria-label={e.label} disabled={!emote.left}
+      {choices.map(e => <button key={e.id} type="button" title={e.label} aria-label={e.label} disabled={!emote.left || sending}
         onClick={async () => {
-          try { await send(e.id, self ? null : seat); close() } catch (err) { setError((err as Error).message) }
+          setSending(true)  // One emote per tap, even if the reply is slow.
+          try { await send(e.id, self ? null : seat); close() }
+          catch (err) { setError((err as Error).message); setSending(false) }
         }}><span aria-hidden="true">{e.emoji}</span><small>{e.label}</small></button>)}
     </div>
     <p className="chat-hint">{emote.left ? `${emote.left} emote${emote.left === 1 ? '' : 's'} left` : `More emotes in ${emote.wait}s`}</p>

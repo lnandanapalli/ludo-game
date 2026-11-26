@@ -179,15 +179,17 @@ export default function Play({ session, leave, forget }: { session: Session; lea
     return now < cooldown[kind] ? { left: 0, wait: Math.ceil((cooldown[kind] - now) / 1000) } : local
   }
   async function post(kind: 'chat' | 'emote', body: object) {
+    // Count the send at once so the allowance shown never lags behind quick taps; undo it if refused.
+    const at = performance.now()
+    setSent(s => ({ ...s, [kind]: [...s[kind], at].slice(-ALLOWANCE[kind].burst * 2) }))
+    setNow(at)
     try {
       const posted = await request<ChatEvent>(path + '/' + kind, session.token, body)
-      const at = performance.now()
-      setSent(s => ({ ...s, [kind]: [...s[kind], at].slice(-ALLOWANCE[kind].burst * 2) }))
-      setNow(at)
       setEvents(list => list.some(e => e.id === posted.id) ? list : [...list, posted].slice(-200))
       return posted
     } catch (e) {
       if (e instanceof ApiError && e.status === 429) setCooldown(c => ({ ...c, [kind]: performance.now() + (e.retryAfter || 5) * 1000 }))
+      else setSent(s => ({ ...s, [kind]: s[kind].filter(t => t !== at) }))
       throw e
     }
   }
