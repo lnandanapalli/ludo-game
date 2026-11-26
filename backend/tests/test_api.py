@@ -161,3 +161,30 @@ def test_disconnected_seat_gets_a_computer_and_can_reconnect(client, monkeypatch
     assert returned["can_end"]
     assert client.post(url + "/end", headers=red).status_code == 200
     assert client.get(url, headers=yellow).status_code == 404
+
+
+def test_room_ends_when_the_last_player_leaves_with_substitutes(client):
+    url, (red, green, yellow) = online_room(client, 3, substitutes=True)
+    assert client.post(url + "/leave", headers=red).json() == {"ended": False}
+    assert client.post(url + "/leave", headers=green).json() == {"ended": False}
+    # Yellow still plays against two computers.
+    assert client.get(url, headers=yellow).json()["presence"] == {"red": "computer", "green": "computer", "yellow": "online"}
+    client.post(url + "/chat", headers=yellow, json={"text": "bye"})
+    # With nobody left who could return, the room ends instead of freezing.
+    assert client.post(url + "/leave", headers=yellow).json() == {"ended": True}
+    assert client.get(url, headers=yellow).status_code == 404
+    assert client.post(url + "/join").status_code == 404
+
+
+def test_room_stays_while_a_disconnected_player_can_return(client):
+    url, (red, yellow) = online_room(client, 2, substitutes=True)
+    # Red never pressed Leave game (it is only offline), so the room must survive Yellow leaving.
+    assert client.post(url + "/leave", headers=yellow).json() == {"ended": False}
+    assert client.get(url, headers=red).json()["presence"]["yellow"] == "computer"
+
+
+def test_waiting_room_ends_when_its_only_player_leaves(client):
+    host = client.post("/rooms", json={"players": 2, "mode": "online", "substitutes": True}).json()
+    url = "/rooms/" + host["room"]
+    assert client.post(url + "/leave", headers={"Authorization": "Bearer " + host["token"]}).json() == {"ended": True}
+    assert client.post(url + "/join").status_code == 404

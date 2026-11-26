@@ -442,8 +442,20 @@ def leave(room: str, key: Annotated[str, Depends(credential)]):
                 game.remove(color, "left the game")
                 if game.current != current:
                     game.turn_started = time.time()
+            # Computers only play while some player polls the room. Once nobody is left who could
+            # return (every joined seat has left or been removed), end the room instead of
+            # leaving it frozen. A merely disconnected player can still return, so they count.
+            joined = game.colors[:len(seats)]
+            if game.phase != "won" and not any(c not in game.quit and c not in game.out for c in joined):
+                end_room(db, room)
+                return {"ended": True}
             save(db, room, game)
     return {"ended": False}
+
+
+def end_room(db, room):
+    db.execute("DELETE FROM ludo.room_players WHERE room_id=%s AND result IS NULL", (room,))
+    db.execute("DELETE FROM ludo.rooms WHERE id=%s", (room,))
 
 
 @app.post("/rooms/{room}/end")
@@ -452,8 +464,7 @@ def end(room: str, key: Annotated[str, Depends(credential)]):
         row, game, seats = load(db, room, lock=True)
         if not snapshot(row, game, seats, key)["can_end"]:
             raise HTTPException(403, "Only the room creator can end the game.")
-        db.execute("DELETE FROM ludo.room_players WHERE room_id=%s AND result IS NULL", (room,))
-        db.execute("DELETE FROM ludo.rooms WHERE id=%s", (room,))
+        end_room(db, room)
     return {"ended": True}
 
 
