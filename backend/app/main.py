@@ -157,11 +157,17 @@ OFFLINE_SECONDS = 15   # A seat without a heartbeat for this long shows as offli
 AWAY_SECONDS = 300     # A disconnected seat is substituted, or removed without substitutes, after this.
 
 
+def seated(game, seats):
+    """Colors with a player. Seats are positional (seat i plays colors[i]); a seat given up before the
+    game starts is an empty slot (None) until the next player to join takes it."""
+    return [color for color, seat in zip(game.colors, seats) if seat]
+
+
 def presence(row, game, seats, now):
     if row["mode"] != "online":
         return {}
     status = {}
-    for color in game.colors[:len(seats)]:
+    for color in seated(game, seats):
         if color in game.out:
             status[color] = "left"
         elif color in game.computers:
@@ -183,13 +189,14 @@ def snapshot(row, game, seats, key):
         raise HTTPException(410, "You were removed after 5 minutes offline.")
     now = time.time()
     host = seats[0] == key
-    ready = row["mode"] == "local" or len(seats) == len(game.colors)
+    players = seated(game, seats)
+    ready = row["mode"] == "local" or len(players) == len(game.colors)
     timed = (row["mode"] == "online" and ready and game.phase != "won"
              and game.turn_started is not None and game.current not in game.computers)
     limit = turn_limit(game, now)
     private = {"computers": game.computers, "substitutes": game.substitutes} if host else {}
     return dict(**game.view(), **private, can_end=host, room=row["id"], mode=row["mode"], revision=row["revision"],
-                seat=game.colors[seats.index(key)], joined=len(seats), ready=ready,
+                seat=game.colors[seats.index(key)], joined=len(players), seated=players, ready=ready,
                 presence=presence(row, game, seats, now), turn_seconds=limit,
                 # May exceed turn_seconds while clients still animate the last roll or move.
                 turn_remaining=max(0.0, game.turn_started + limit - now) if timed else None)
@@ -312,17 +319,25 @@ def join(room: str, account: Annotated[int | None, Depends(optional_account)], s
         row, game, seats = load(db, room, lock=True)
         if row["mode"] != "online":
             raise HTTPException(409, "Room is private to one device.")
-        if len(seats) >= len(game.colors):
+        if len(seated(game, seats)) >= len(game.colors):
             raise HTTPException(409, "Room is full.")
-        for color in game.colors[:len(seats)+1]:
-            game.last_seen.setdefault(color, time.time())
+        # Take the first free seat: one given up before the start, or the next new one.
+        slot = next((i for i, seat in enumerate(seats) if not seat), len(seats))
+        color = game.colors[slot]
+        now = time.time()
+        for other in seated(game, seats):
+            game.last_seen.setdefault(other, now)
+        game.last_seen[color] = now
         if setup and setup.profile:
-            game.profiles[game.colors[len(seats)]] = setup.profile.model_dump()
-        game.auto_move[game.colors[len(seats)]] = bool(setup and setup.auto_move)
-        link(db, room, account, game.colors[len(seats)])
-        seats.append(digest(token))
-        if len(seats) == len(game.colors):
-            game.started_at = game.turn_started = time.time()
+            game.profiles[color] = setup.profile.model_dump()
+        game.auto_move[color] = bool(setup and setup.auto_move)
+        link(db, room, account, color)
+        if slot < len(seats):
+            seats[slot] = digest(token)
+        else:
+            seats.append(digest(token))
+        if len(seated(game, seats)) == len(game.colors):
+            game.started_at = game.turn_started = now
         save(db, room, game, seats=seats)
     return {"room": room, "token": token}
 
@@ -359,14 +374,14 @@ def read(room: str, key: Annotated[str, Depends(credential)], preview: bool = Fa
             seat = result["seat"]
             saved = changed = False
             if now - game.last_seen.get(seat, 0) >= HEARTBEAT_SECONDS:
-                for color in game.colors[:len(seats)]:
+                for color in seated(game, seats):
                     game.last_seen.setdefault(color, now)
                 game.last_seen[seat] = now
                 saved = True
             if result["ready"] and game.turn_started is None:
                 game.turn_started = now
                 saved = True
-            playing = [c for c in game.colors[:len(seats)] if c not in game.out]
+            playing = [c for c in seated(game, seats) if c not in game.out]
             away = [c for c in playing if c in game.quit or now - game.last_seen[c] >= AWAY_SECONDS]
             if game.substitutes:
                 # Seats that left, or stayed disconnected for five minutes, get a computer.
@@ -438,7 +453,7 @@ def send_emote(room: str, emote: EmoteIn, key: Annotated[str, Depends(credential
     with database() as db:
         game, seats, color = speaker(db, room, key)
         target = emote.target
-        if target is not None and (target == color or target not in game.colors[:len(seats)] or target in game.out):
+        if target is not None and (target == color or target not in seated(game, seats) or target in game.out):
             raise HTTPException(422, "Choose another player in this game.")
         if target is None and emote.emote in chat.THROWS:
             raise HTTPException(422, "Choose a player to send that to.")
@@ -454,16 +469,17 @@ def leave(room: str, key: Annotated[str, Depends(credential)]):
         color = snapshot(row, game, seats, key)["seat"]
         if row["mode"] == "online" and game.phase != "won":
             index = game.colors.index(color)
-            if len(seats) < len(game.colors) and index == len(seats) - 1 and index > 0:
-                # The game has not started and this was the latest seat taken: give it back, so
-                # the next player to join gets it fresh.
+            if len(seated(game, seats)) < len(game.colors) and index > 0:
+                # The game has not started: give the seat back, so the next player to join takes it
+                # with the same color. Nobody else's color changes. The creator's seat is never freed,
+                # because it carries the power to end the game.
                 free_seat(db, room, game, seats, color)
                 return {"ended": False}
             game.quit.append(color)
             # Computers only play while some player polls the room. Once nobody is left who could
             # return (every joined seat has left or been removed), end the room instead of
             # leaving it frozen. A merely disconnected player can still return, so they count.
-            if not any(c not in game.quit and c not in game.out for c in game.colors[:len(seats)]):
+            if not any(c not in game.quit and c not in game.out for c in seated(game, seats)):
                 end_room(db, room)
                 return {"ended": True}
             if game.substitutes:
@@ -479,7 +495,9 @@ def leave(room: str, key: Annotated[str, Depends(credential)]):
 
 
 def free_seat(db, room, game, seats, color):
-    seats.pop()
+    seats[game.colors.index(color)] = None
+    while seats and not seats[-1]:
+        seats.pop()  # Keep the list tidy: trailing free seats are the same as never-taken ones.
     for table in (game.profiles, game.auto_move, game.last_seen):
         table.pop(color, None)
     if color in game.computers:

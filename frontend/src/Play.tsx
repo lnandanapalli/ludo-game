@@ -239,7 +239,9 @@ export default function Play({ session, leave, forget }: { session: Session; lea
         <button type="button" className="quiet" onClick={async () => {
           const online = game?.mode === 'online' && game.phase !== 'won'
           if (!window.confirm(!online ? "Leave this game? You can resume from the lobby."
-            : !game.ready ? "Leave this room? Your seat is given up, and the room closes if nobody else has joined."
+            : !game.ready && !game.can_end ? "Leave this room? Your seat is given up for the next player who joins."
+            : !game.ready ? "Leave this room? It closes if nobody else has joined; otherwise your seat stays yours, "
+              + (game.substitutes ? "played by a computer." : "but you are removed from the game.")
             : "Leave this game for good? You can't rejoin. A computer takes your seat if substitutes are on; otherwise you're removed.")) return
           try { await request(path + '/leave', session.token, {}); if (online) forget('You left the game.'); else leave() }
           catch (e) { if (unavailable(e)) forget('Room unavailable.'); else setError((e as Error).message) }
@@ -266,7 +268,7 @@ export default function Play({ session, leave, forget }: { session: Session; lea
             const portrait = <span className="portrait">{portraits[profile.avatar]}
               {timer?.phase === 'move' && game.phase === 'move' && color === game.current && <TimerRing key={timer.revision} timer={timer} />}
             </span>
-            const reachable = online && game.colors.indexOf(color) < game.joined && !game.out?.includes(color)
+            const reachable = online && game.seated.includes(color) && !game.out?.includes(color)
             return reachable ? <button type="button" className="portrait-button" aria-haspopup="dialog"
               aria-label={color === game.seat ? 'Send a reaction' : `Send an emote to ${profile.name.trim() || color}`}
               onClick={() => setPicker(picker === color ? null : color)}>{portrait}</button> : portrait

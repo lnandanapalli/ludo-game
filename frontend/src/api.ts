@@ -18,6 +18,8 @@ export interface Match {
   colors: PawnColor[]
   out: PawnColor[]
   joined: number
+  /** Colors with a player; a seat given up before the start is open until someone joins. */
+  seated: PawnColor[]
   ready: boolean
   revision: number
   phase: 'roll' | 'move' | 'won'

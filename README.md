@@ -51,7 +51,7 @@ The room's creator chooses whether computer substitutes are on (the default). Ev
 - **Disconnected** (network drop or closed browser): shown as Offline after 15 seconds. The timers keep playing for the seat; its move is made 1 second after its roll. The player reconnects with Resume game in the same browser or, when signed in, from any device. After 5 minutes away a computer takes over (CPU) until they return; without substitutes the seat is removed instead.
 - **Leave game** (chosen on purpose): the player cannot return. A computer takes the seat at once, or without substitutes the seat is removed.
 - **Removed** (Left): the seat's pawns leave the board and turns skip it. When one player remains, they win.
-- **Leaving before the game starts**: the latest player to join gets their seat back free for someone else; the room closes if nobody else has joined.
+- **Leaving before the game starts**: the seat becomes free and the next player to join takes it, with the same color; nobody else's color changes. The creator's seat is kept (it can end the game), and the room closes if nobody else has joined.
 - **Everyone gone**: when the last player who could return chooses Leave game, the room ends at once (with its chat) instead of lingering with only computers in it.
 
 Only the room's creator, or the local device, can end a game for everyone.

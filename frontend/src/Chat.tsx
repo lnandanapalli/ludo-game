@@ -54,7 +54,7 @@ export default function ChatPanel({ game, events, prefs, setPrefs, muted, toggle
     input.current?.focus()
     if (!await say(message)) setText(current => current || message)
   }
-  const others = game.colors.slice(0, game.joined).filter(c => c !== game.seat && !game.out?.includes(c))
+  const others = game.seated.filter(c => c !== game.seat && !game.out?.includes(c))
   const label = unread ? `Open chat, ${unread} new` : 'Open chat'
   return <aside className="chat" data-open={open} aria-label="Game chat">
     <button type="button" className="chat-toggle" aria-expanded={open} aria-controls="chat-panel"

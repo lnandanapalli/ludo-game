@@ -136,7 +136,7 @@ export default function App() {
       </section>}
       {session && preview?.mode === mode && <section className="saved-match" aria-label="Saved game">
         <div><strong>{mode === 'local' ? 'Saved game on this device' : 'Room ' + preview.room}</strong>
-          <p>{preview.colors.slice(0, preview.mode === 'local' ? preview.colors.length : preview.joined)
+          <p>{(preview.mode === 'local' ? preview.colors : preview.seated)
             .map(c => preview.profiles[c]?.name || c[0].toUpperCase() + c.slice(1)).join(' · ')}</p>
           <small>{preview.ready ? <>
             {preview.started_at ? 'Started ' + new Date(preview.started_at * 1000).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}) : 'Start time unavailable'}

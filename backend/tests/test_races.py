@@ -117,3 +117,41 @@ def test_chat_while_the_room_is_ending_gets_not_found(client, monkeypatch):
 def test_absurd_event_cursor_is_rejected_cleanly(client):
     host = client.post("/rooms", json={"players": 2, "mode": "online"}).json()
     assert client.get("/rooms/" + host["room"] + "?events_after=" + "9" * 30, headers=bearer(host["token"])).status_code == 422
+
+
+def test_a_middle_seat_freed_before_the_start_is_refilled_without_moving_anyone(client):
+    host = client.post("/rooms", json={"players": 4, "mode": "online", "substitutes": True}).json()
+    url = "/rooms/" + host["room"]
+    red = bearer(host["token"])
+
+    def join(name):
+        return bearer(client.post(url + "/join", json={"profile": {"name": name, "avatar": "owl"}}).json()["token"])
+    green, yellow = join("Mika"), join("Ravi")
+    client.post(url + "/chat", headers=green, json={"text": "back soon"})
+    assert client.post(url + "/leave", headers=green).json() == {"ended": False}
+    waiting = client.get(url, headers=red).json()
+    assert waiting["joined"] == 2 and waiting["seated"] == ["red", "yellow"] and not waiting["ready"]
+    assert "green" not in waiting["profiles"] and all(e["seat"] != "green" for e in waiting["events"])
+    assert client.get(url, headers=yellow).json()["seat"] == "yellow"  # Nobody else's color changed.
+    assert client.post(url + "/emote", headers=red, json={"emote": "rose", "target": "green"}).status_code == 422
+    # The next player takes the free green seat, the one after that gets blue, and the game starts.
+    newcomer = join("Asha")
+    assert client.get(url, headers=newcomer).json()["seat"] == "green"
+    last = join("Dev")
+    started = client.get(url, headers=last).json()
+    assert started["seat"] == "blue" and started["ready"] and started["joined"] == 4
+    assert started["seated"] == ["red", "green", "yellow", "blue"]
+    assert [started["profiles"][c]["name"] for c in ("green", "yellow", "blue")] == ["Asha", "Ravi", "Dev"]
+    assert set(started["presence"].values()) == {"online"}
+    assert client.post(url + "/join").status_code == 409
+
+
+def test_the_creator_leaving_the_waiting_room_keeps_their_seat(client):
+    host = client.post("/rooms", json={"players": 3, "mode": "online", "substitutes": True}).json()
+    url = "/rooms/" + host["room"]
+    green = bearer(client.post(url + "/join").json()["token"])
+    assert client.post(url + "/leave", headers=bearer(host["token"])).json() == {"ended": False}
+    yellow = bearer(client.post(url + "/join").json()["token"])
+    started = client.get(url, headers=yellow).json()
+    assert started["seat"] == "yellow" and started["ready"]
+    assert started["presence"]["red"] == "computer" and started["presence"]["green"] == "online"
