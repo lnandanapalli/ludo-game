@@ -32,6 +32,7 @@ export interface Match {
 
 export interface Account {
   username: string
+  email: string
   profile: Profile
   stats: { games: number; wins: number }
   games: { room: string; color: PawnColor; started_at: number | null; players: string[] }[]
@@ -62,10 +63,10 @@ export class ApiError extends Error {
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
-export async function request<T>(path: string, token?: string, body?: object, method?: Method): Promise<T> {
+export async function request<T>(path: string, token?: string, body?: object, method?: Method, asGuest = false): Promise<T> {
   const headers = new Headers()
   if (token) headers.set('Authorization', 'Bearer ' + token)
-  const account = accountToken()
+  const account = asGuest ? '' : accountToken()
   if (account) headers.set('X-Account-Token', account)
   if (body) headers.set('Content-Type', 'application/json')
   let response: Response
@@ -80,7 +81,11 @@ export async function request<T>(path: string, token?: string, body?: object, me
     const error = await response.json().catch(() => ({}))
     const detail = typeof error.detail === 'string' ? error.detail : 'Request failed. Please retry.'
     // An expired sign-in should not block play: forget it and let the player continue as a guest.
-    if (response.status === 401 && account && detail.startsWith('Your sign-in expired')) setAccountToken(null)
+    if (response.status === 401 && account && detail.startsWith('Your sign-in expired')) {
+      setAccountToken(null)
+      // Creating or joining a room still works as a guest; account pages report the expiry.
+      if (!/^\/(me|sessions)\b/.test(path)) return request<T>(path, token, body, method, true)
+    }
     throw new ApiError(response.status, detail, Number(response.headers.get('Retry-After')) || 0)
   }
   return response.json()

@@ -46,9 +46,10 @@ def test_online_and_local():
             expect(page.locator('.dice-dock[data-seat="red"] .roll-timer .turn-timer')).to_be_visible()
             expect(page.locator(".presence")).to_have_count(0)
         for page in (host, guest):
-            assert page.locator("table.ludo-board td").count() == 225
+            expect(page.get_by_role("img", name="Ludo board")).to_be_visible()
+            assert page.locator(".ludo-board .pawn-icon").count() == 8
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
-            board = page.locator("table.ludo-board").bounding_box()
+            board = page.locator(".ludo-board").bounding_box()
             die = page.get_by_role("button", name="Roll die").bounding_box()
             assert abs(board["width"] - board["height"]) < 3
             assert die["y"] + die["height"] <= board["y"]
@@ -256,9 +257,23 @@ def test_menu_pages_and_deep_links():
         browser.close()
 
 
+def emailed_code(address, after):
+    """Read the newest code sent to an address from the API's development mail folder."""
+    import glob, json, time
+    folder = os.getenv("LUDO_MAIL_DIR", "/tmp/ludo-mail")
+    for _ in range(50):
+        for path in sorted(glob.glob(folder + "/*.json"), reverse=True):
+            message = json.load(open(path))
+            if message["to"] == address and message["code"] and os.path.getmtime(path) >= after:
+                return message["code"]
+        time.sleep(0.2)
+    raise AssertionError("No code emailed to " + address)
+
+
 def test_account_resumes_online_game_on_another_device():
-    import secrets
+    import secrets, time
     username = "e2e_" + secrets.token_hex(4)
+    email = username + "@example.com"
     base = os.getenv("LUDO_FRONTEND_URL", "http://localhost:5173")
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_PATH"))
@@ -266,9 +281,15 @@ def test_account_resumes_online_game_on_another_device():
         laptop.goto(base + "/account")
         laptop.get_by_role("button", name="Create account").first.click()
         laptop.get_by_label("Username").fill(username)
+        laptop.get_by_label("Email").fill(email)
         laptop.get_by_label("Password", exact=True).fill("a long password")
         laptop.get_by_label("Confirm password").fill("a long password")
+        started = time.time() - 1
         laptop.locator("form").get_by_role("button", name="Create account").click()
+        expect(laptop.get_by_role("heading", name="Check your email")).to_be_visible()
+        expect(laptop.get_by_role("button", name="Resend code in", exact=False)).to_be_disabled()
+        laptop.get_by_label("6-digit code").fill(emailed_code(email, started))
+        laptop.get_by_role("button", name="Verify email").click()
         expect(laptop.get_by_role("heading", name="Hi, " + username)).to_be_visible()
         laptop.get_by_label("Display name").fill("Nova")
         laptop.get_by_role("button", name="owl").click()
@@ -279,13 +300,24 @@ def test_account_resumes_online_game_on_another_device():
         expect(laptop.get_by_label("red player name")).to_have_value("Nova")
         laptop.get_by_text("Create online room").click()
         expect(laptop.get_by_label("Invite link")).to_be_visible()
-        # The same account on a second device takes the seat over.
+        # On a second device the player has forgotten the password and resets it by email.
         phone = browser.new_page(viewport={"width": 390, "height": 844})
         phone.goto(base + "/account")
-        phone.get_by_label("Username").fill(username.upper())
-        phone.get_by_label("Password", exact=True).fill("a long password")
+        phone.get_by_label("Username or email").fill(email)
+        phone.get_by_label("Password", exact=True).fill("wrong password")
         phone.locator("form").get_by_role("button", name="Sign in").click()
+        expect(phone.get_by_role("alert")).to_have_text("Wrong username, email or password.")
+        phone.get_by_role("button", name="Forgot password?").click()
+        phone.get_by_label("Email").fill(email)
+        started = time.time() - 1
+        phone.get_by_role("button", name="Send code").click()
+        expect(phone.get_by_role("heading", name="Choose a new password")).to_be_visible()
+        phone.get_by_label("6-digit code").fill(emailed_code(email, started))
+        phone.get_by_label("New password").fill("another long one")
+        phone.get_by_label("Confirm password").fill("another long one")
+        phone.get_by_role("button", name="Set password and sign in").click()
         expect(phone.get_by_role("navigation", name="Main")).to_contain_text(username)
+        # The same account takes the online seat over on this device.
         phone.get_by_role("navigation", name="Main").get_by_role("link", name="Play", exact=True).click()
         phone.get_by_role("button", name="Online", exact=True).click()
         games = phone.get_by_role("region", name="Your online games")

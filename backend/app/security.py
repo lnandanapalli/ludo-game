@@ -14,14 +14,19 @@ MAX_BODY_BYTES = 16 * 1024
 
 # name: (burst capacity, tokens refilled per second)
 LIMITS = {
-    "general": (600, 10.0),      # Every request: polling several tabs stays well below this.
+    "address": (1200, 20.0),     # Every request per client address, checked before any database lookup.
+    "general": (600, 10.0),      # Every request per account or guest address: several polling tabs fit.
     "action": (120, 2.0),        # Rolls and moves.
     "create": (30, 0.1),         # New rooms: a burst of 30, then one every 10 seconds.
     "join": (30, 0.2),
-    "signup": (5, 1 / 600),      # Five accounts, then one every 10 minutes.
+    "signup": (5, 1 / 600),      # Five sign-up emails, then one every 10 minutes.
     "login": (10, 1 / 60),       # Per address.
     "login-user": (10, 1 / 60),  # Per username, against password guessing from many addresses.
     "account": (60, 1.0),        # Profile and password changes.
+    "send-code": (10, 1 / 120),  # Resending sign-up codes and password reset requests, per address.
+    "check-code": (20, 1 / 30),  # Entering codes, per address (each code also allows only 5 tries).
+    "mail-to": (5, 1 / 300),     # Emails to any one recipient, so nobody can flood an inbox.
+    "code-tries": (10, 10 / 3600),  # Code guesses per email across all codes: about 240 a day.
 }
 
 
@@ -130,6 +135,7 @@ API_HEADERS = [
     (b"referrer-policy", b"no-referrer"),
     (b"x-frame-options", b"DENY"),
     (b"cross-origin-resource-policy", b"same-site"),
+    (b"strict-transport-security", b"max-age=31536000"),
 ]
 DOCS = ("/docs", "/redoc", "/openapi.json")
 

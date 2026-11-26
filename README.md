@@ -24,6 +24,8 @@ npm ci
 npm run dev
 ```
 
+Accounts send codes by email. Locally, start the API with `LUDO_MAIL_DEV=1` to print each email in the API's terminal instead of sending it.
+
 Open http://localhost:5173. In Codespaces, run both servers in the same Codespace, leave `VITE_API_URL` unset, and open forwarded port 5173. Visit `/api/health` on that frontend URL to check the connection.
 
 ## Playing
@@ -54,13 +56,14 @@ Only the room's creator, or the local device, can end a game for everyone.
 
 ### Accounts
 
-Signing up is optional. An account keeps a display name and avatar, records finished online games and wins, and lists unfinished online games so they can be resumed on any device; resuming moves the seat and signs the previous device out of that game. Players can change their password (which signs out other devices) or delete their account from the account page.
+Signing up is optional and needs a username, email address and password. The account is created only after the player enters the 6-digit code emailed to them (valid for 10 minutes, 5 tries). **Forgot password?** emails a code that sets a new password and signs out every other device. Players sign in with their username or email. An account keeps a display name and avatar, records finished online games and wins, and lists unfinished online games so they can be resumed on any device; resuming moves the seat and signs the previous device out of that game. Players can change their password (which signs out other devices) or delete their account from the account page.
 
 ## Security
 
 - The server rolls every die and checks every move. Seat credentials and sign-in tokens are random 256-bit values stored only as SHA-256 hashes. Passwords are hashed with scrypt.
 - Requests are rate limited per signed-in account, or per client address for guests, with tighter limits for creating rooms, joining, moves, sign-up and sign-in (also limited per username). Limited requests get `429` with `Retry-After`.
 - Behind a reverse proxy, set `LUDO_PROXY_HOPS` to the number of proxies that append to `X-Forwarded-For` (the Docker image sets 1, which suits Azure App Service). The client address is the entry the outermost trusted proxy added, so a forged header cannot change it.
+- Sign-up and password-reset replies are identical whether or not an email address has an account. Code guesses are capped per email across codes, and each recipient gets at most a few emails every few minutes.
 - Request bodies are limited to 16 KB. API responses carry `nosniff`, `no-store` and a deny-all Content-Security-Policy; the web image adds a strict Content-Security-Policy that only allows its own API origin, plus HSTS and frame denial.
 - Finished rooms are deleted after two days and idle rooms after thirty.
 
@@ -72,6 +75,9 @@ Signing up is optional. An account keeps a display name and avatar, records fini
 | `LUDO_ORIGINS` | Backend | Comma-separated exact frontend origins allowed by CORS, e.g. `https://play.example.com`. |
 | `DATABASE_URL` | Backend | Postgres connection URI. Required. |
 | `LUDO_PROXY_HOPS` | Backend | Trusted proxies in front of the API (default 0; the Docker image sets 1). |
+| `RESEND_API_KEY` | Backend | [Resend](https://resend.com) API key for sign-up and password-reset emails. Without it (and without `LUDO_MAIL_DEV`), account creation and password reset are unavailable. |
+| `LUDO_MAIL_FROM` | Backend | Sender, on a domain verified in Resend, e.g. `Ludo <no-reply@example.com>`. |
+| `LUDO_MAIL_DEV` | Backend | Development only: `1` prints emails instead of sending them; with `LUDO_MAIL_DIR`, also writes them there as JSON. Never set in production. |
 
 Rate limits are kept in memory per API instance. Health check: `GET /health`. API docs: `/docs`.
 
@@ -90,7 +96,7 @@ The API listens on port 8000 and the web server on port 80. On a container host 
 
 ## Tests
 
-Use a dedicated test Postgres database with the migrations applied as `DATABASE_URL`. Run `python -m pytest` inside `backend` with the development requirements installed, and `npm run lint && npm run build` inside `frontend`. The browser suite in `tests/` uses Python Playwright against both running services on their default local ports: install Chromium with `python -m playwright install chromium`, then run `python -m pytest tests/` from the repository root. GitHub Actions runs these checks on every push and pull request.
+Use a dedicated test Postgres database with the migrations applied as `DATABASE_URL`. Run `python -m pytest` inside `backend` with the development requirements installed, and `npm run lint && npm run build` inside `frontend`. The browser suite in `tests/` uses Python Playwright against both running services on their default local ports, with the API started with `LUDO_MAIL_DEV=1 LUDO_MAIL_DIR=/tmp/ludo-mail` so the tests can read emailed codes: install Chromium with `python -m playwright install chromium`, then run `python -m pytest tests/` from the repository root. GitHub Actions runs these checks on every push and pull request.
 
 ## Existing SQLite matches
 

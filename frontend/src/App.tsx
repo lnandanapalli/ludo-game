@@ -109,7 +109,7 @@ export default function App() {
     setBusy(true)
     setError('')
     try {
-      open(await request<Session>('/rooms/' + room + '/reclaim', undefined, {}))
+      open(await request<Session>('/rooms/' + encodeURIComponent(room) + '/reclaim', undefined, {}))
     } catch (e) { setError((e as Error).message) }
     finally { setBusy(false) }
   }

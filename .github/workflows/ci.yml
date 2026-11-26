@@ -63,6 +63,10 @@ jobs:
         working-directory: frontend
       - run: for f in supabase/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
       - name: Run browser integration test
+        env:
+          # Codes are written to a folder instead of being emailed, so the tests can read them.
+          LUDO_MAIL_DEV: '1'
+          LUDO_MAIL_DIR: /tmp/ludo-mail
         run: |
           (cd backend && uvicorn app.main:app --port 8000) &
           (cd frontend && npm run preview -- --port 5173 --strictPort) &

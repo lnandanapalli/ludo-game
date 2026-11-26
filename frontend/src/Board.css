@@ -1,33 +1,74 @@
-.ludo-board {
-  border-collapse: collapse;
-  width: 90vw;
-  max-width: 600px;
-  margin: 0 auto;
-  table-layout: fixed;
-  /* Three of the fifteen rows and columns form the four home triangles. */
-  background: conic-gradient(from -45deg, #39b54a 0 90deg, #fff201 90deg 180deg,
-    #00aeee 180deg 270deg, #ed1b24 270deg 360deg) center / 20% 20% no-repeat;
-}
+/* SVG artwork with a 15 x 15 grid of pieces laid over it. */
+.ludo-board { position: relative; width: 100%; aspect-ratio: 1; }
+.board-art { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.board-lines { fill: none; stroke: #6f7a7c; stroke-width: 1px; vector-effect: non-scaling-stroke; shape-rendering: crispEdges; }
+.board-pieces { position: absolute; inset: 0; display: grid; grid-template: repeat(15, 1fr) / repeat(15, 1fr); pointer-events: none; }
+.board-cell { position: relative; min-width: 0; min-height: 0; }
+.board-choice { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0;
+  border-radius: 4px; background: transparent; pointer-events: auto; }
+.board-choice:enabled:hover { background: #ffffff38; filter: none; }
 
-.ludo-board td {
-  padding: 0;
-}
-
-
-.ludo-board td { position: relative; }
-.ludo-board .board-choice {
+.pawn-layer {
   position: absolute;
   inset: 0;
-  width: 100%;
-  padding: 0;
-  border: 2px solid #202a48;
-  border-radius: 4px;
-  background: transparent;
+  display: flex;
+  align-content: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  overflow: hidden;
+  pointer-events: none;
 }
-.ludo-board .board-choice:hover { background: #ffffff40; }
-.ludo-board .board-choice { min-height: 0; box-shadow: inset 0 0 0 1px white; }
 
-.ludo-board button.board-choice, .ludo-board button.board-choice:hover { border: 0; background: transparent; box-shadow: none; }
+.pawn-stack {
+  width: 50%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+.pawn-layer[data-groups="1"] .pawn-stack {
+  width: 100%;
+}
+
+.pawn-stack:has(.pawn-icon:nth-child(2)) .pawn-icon {
+  width: 62%;
+  height: 72%;
+}
+
+.pawn-icon {
+  --lit: color-mix(in srgb, currentColor 55%, white);
+  --shade: color-mix(in srgb, currentColor 58%, #181320);
+  --rim: color-mix(in srgb, currentColor 38%, #181320);
+  position: relative;
+  grid-area: 1 / 1;
+  width: 78%;
+  height: 88%;
+  background: radial-gradient(ellipse 43% 19% at 50% 77%,
+    var(--lit) 0%, currentColor 55%, var(--shade) 84%, var(--rim) 98%, transparent 100%);
+  filter: drop-shadow(0 1px 1px #20152580);
+}
+
+/* The tapered stem sits behind a polished spherical head. */
+.pawn-icon::before,
+.pawn-icon::after {
+  content: "";
+  position: absolute;
+}
+
+.pawn-icon::before {
+  inset: 34% 20% 18%;
+  border-radius: 0 0 45% 45%;
+  clip-path: polygon(29% 0, 71% 0, 69% 26%, 75% 54%, 100% 93%, 100% 100%, 0 100%, 0 93%, 25% 54%, 31% 26%);
+  background: linear-gradient(100deg, var(--shade), var(--lit) 29%, currentColor 52%, var(--shade) 80%, var(--rim));
+}
+
+.pawn-icon::after {
+  inset: 4% 22% 47%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 33% 23%, #fffffff0, transparent 22%),
+    radial-gradient(circle at 36% 30%, var(--lit), currentColor 46%, var(--shade) 73%, var(--rim) 95%);
+}
+
 .pawn-icon[data-playable] { animation: pawn-pulse .78s ease-in-out infinite alternate; z-index: 1; }
 @keyframes pawn-pulse { from { scale: .92; } to { scale: 1.2; filter: drop-shadow(0 0 2px white) drop-shadow(0 0 2px currentColor); } }
 @media(prefers-reduced-motion: reduce) {

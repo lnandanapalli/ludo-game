@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { PAWN_COLOR_HEX } from './types'
-import BoardGrid from './BoardGrid'
+import Board from './Board'
 import { ApiError, request, unavailable, type Match, type Session } from './api'
 import Confetti from './Confetti'
 import Die from './Die'
@@ -186,7 +186,7 @@ export default function Play({ session, leave, forget }: { session: Session; lea
             {game.pawns.filter(p => p.color === color).map(p => <i key={p.id} data-home={p.step === 56}/>)}</span>
         </div>
       })}
-      <div className="board-frame"><BoardGrid pawns={travel ? travel.before.pawns.filter(p => p.id !== travel.move.pawn) : game.pawns} moves={!travel && ownTurn && !busy && !rolling
+      <div className="board-frame"><Board pawns={travel ? travel.before.pawns.filter(p => p.id !== travel.move.pawn) : game.pawns} moves={!travel && ownTurn && !busy && !rolling
         ? new Map(game.legal.map(i => [game.current + '-' + (i + 1), () => act('move', i)]))
         : undefined} />
         {travel && <div className="traveling-pawn" ref={traveler} aria-hidden="true"

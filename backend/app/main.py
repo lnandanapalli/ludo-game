@@ -26,6 +26,8 @@ Color = Literal[COLORS]
 LIMITED = [
     ("POST", re.compile(r"^/accounts$"), "signup", True),
     ("POST", re.compile(r"^/sessions$"), "login", True),
+    ("POST", re.compile(r"^/(accounts/resend|password/forgot)$"), "send-code", True),
+    ("POST", re.compile(r"^/(accounts/verify|password/reset)$"), "check-code", True),
     ("POST", re.compile(r"^/rooms$"), "create", False),
     ("POST", re.compile(r"^/rooms/[^/]+/join$"), "join", False),
     ("POST", re.compile(r"^/rooms/[^/]+/(actions|reclaim)$"), "action", False),
@@ -40,12 +42,16 @@ class RateLimit:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["method"] == "OPTIONS" or scope["path"] == "/health":
+        if scope["type"] != "http" or scope["method"] == "OPTIONS":
             return await self.app(scope, receive, send)
         address = "ip:" + client_ip(scope)
+        # Checked first, so floods (including ones with made-up sign-in tokens) never reach the database.
+        wait = limiter.hit("address", address)
+        if wait:
+            return await too_many(send, wait)
         token = dict(scope.get("headers") or []).get(b"x-account-token", b"").decode("latin-1")
         account = None
-        if token:
+        if TOKEN.fullmatch(token):
             try:
                 account = await run_in_threadpool(resolve, token)
             except Exception:  # A database hiccup falls back to the address.
@@ -58,9 +64,16 @@ class RateLimit:
         for name, bucket in checks:
             wait = limiter.hit(name, bucket)
             if wait:
-                return await send_json(send, 429, {"detail": f"Too many requests. Try again in {wait} seconds."},
-                                       [(b"retry-after", str(wait).encode())])
+                return await too_many(send, wait)
         await self.app(scope, receive, send)
+
+
+TOKEN = re.compile(r"[A-Za-z0-9_-]{43}")  # secrets.token_urlsafe(32)
+
+
+async def too_many(send, wait):
+    await send_json(send, 429, {"detail": f"Too many requests. Try again in {wait} seconds."},
+                    [(b"retry-after", str(wait).encode())])
 
 
 app = FastAPI(title="Ludo")
@@ -216,6 +229,9 @@ def cleanup(db):
     db.execute(f"DELETE FROM ludo.room_players p USING ludo.rooms r WHERE p.room_id = r.id "
                f"AND p.result IS NULL AND ({stale})")
     db.execute(f"DELETE FROM ludo.rooms WHERE {stale}")
+    db.execute("DELETE FROM ludo.signups WHERE expires_at < now()")
+    db.execute("DELETE FROM ludo.password_resets WHERE expires_at < now()")
+    db.execute("DELETE FROM ludo.sessions WHERE expires_at < now()")
 
 
 def progress(game):

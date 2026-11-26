@@ -1,4 +1,4 @@
-"""Optional player accounts: sign-up, sessions, profile and match history."""
+"""Optional player accounts: verified sign-up, sessions, password resets, profile and match history."""
 import hashlib
 import hmac
 import secrets
@@ -7,10 +7,11 @@ import time
 import unicodedata
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, field_validator
 
+from . import mail
 from .db import database
 from .security import limiter
 
@@ -21,6 +22,11 @@ SCRYPT = dict(n=2 ** 14, r=8, p=1, dklen=32)
 Avatar = Literal["fox", "panda", "tiger", "frog", "owl", "koala"]
 Username = Annotated[str, Field(pattern=r"^[A-Za-z0-9_]{3,20}$")]
 Password = Annotated[str, Field(min_length=8, max_length=128)]
+Email = Annotated[str, Field(max_length=254, pattern=r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]+$")]
+Code = Annotated[str, Field(pattern=r"^[0-9]{6}$")]
+CODE_MINUTES = 10
+CODE_ATTEMPTS = 5
+RESEND_SECONDS = 60
 
 
 class Profile(BaseModel):
@@ -36,12 +42,28 @@ class Profile(BaseModel):
 
 class SignUp(BaseModel):
     username: Username
+    email: Email
     password: Password
     profile: Profile | None = None
 
 
+class EmailOnly(BaseModel):
+    email: Email
+
+
+class Verify(BaseModel):
+    email: Email
+    code: Code
+
+
+class Reset(BaseModel):
+    email: Email
+    code: Code
+    password: Password
+
+
 class SignIn(BaseModel):
-    username: str = Field(max_length=20)
+    login: str = Field(max_length=254)  # Username or email address.
     password: str = Field(max_length=128)
 
 
@@ -56,6 +78,46 @@ class Confirm(BaseModel):
 
 def digest(token):
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def code_hash(kind, email, code):
+    return digest(f"{kind}:{email}:{code}")
+
+
+def new_code():
+    return f"{secrets.randbelow(10 ** 6):06d}"
+
+
+def require_mail():
+    if not mail.configured():
+        raise HTTPException(503, "Email is not set up on this server, so accounts are unavailable.")
+
+
+def mail_allowed(email):
+    """Limit how often any one address is emailed, whoever asks."""
+    return limiter.hit("mail-to", email) == 0
+
+
+def check_code(db, table, key_column, key, kind, email, code):
+    """Validate a one-time code row under lock; wrong guesses count toward the attempt limit."""
+    wait = limiter.hit("code-tries", f"{kind}:{email}")
+    if wait:
+        raise HTTPException(429, f"Too many code attempts. Try again in {wait} seconds.",
+                            headers={"Retry-After": str(wait)})
+    row = db.execute(f"SELECT * FROM ludo.{table} WHERE {key_column}=%s FOR UPDATE", (key,)).fetchone()
+    expired = HTTPException(400, "That code has expired. Request a new one.")
+    if row is None or row["expires_at"].timestamp() < time.time() or row["attempts"] >= CODE_ATTEMPTS:
+        if row is not None:
+            db.execute(f"DELETE FROM ludo.{table} WHERE {key_column}=%s", (key,))
+        raise expired
+    if not hmac.compare_digest(row["code_hash"], code_hash(kind, email, code)):
+        left = CODE_ATTEMPTS - row["attempts"] - 1
+        db.execute(f"UPDATE ludo.{table} SET attempts = attempts + 1 WHERE {key_column}=%s", (key,))
+        if left <= 0:
+            raise expired
+        raise HTTPException(400, f"Wrong code. {left} {'try' if left == 1 else 'tries'} left.")
+    db.execute(f"DELETE FROM ludo.{table} WHERE {key_column}=%s", (key,))
+    return row
 
 
 def hash_password(password):
@@ -127,7 +189,7 @@ def start_session(db, account):
 
 
 def summary(db, account):
-    row = db.execute("SELECT username, profile FROM ludo.accounts WHERE id=%s", (account,)).fetchone()
+    row = db.execute("SELECT username, email, profile FROM ludo.accounts WHERE id=%s", (account,)).fetchone()
     if row is None:
         raise HTTPException(401, "Your sign-in expired. Please sign in again.")
     stats = db.execute("SELECT count(result) AS games, count(*) FILTER (WHERE result='won') AS wins "
@@ -142,36 +204,146 @@ def summary(db, account):
         profiles = state.get("profiles", {})
         games.append(dict(room=game["id"], color=color, started_at=state.get("started_at"),
                           players=[profiles.get(c, {}).get("name") or c.title() for c in state["colors"]]))
-    return dict(username=row["username"], profile=row["profile"], games=games,
+    return dict(username=row["username"], email=row["email"], profile=row["profile"], games=games,
                 stats=dict(games=stats["games"], wins=stats["wins"]))
 
 
-@router.post("/accounts", status_code=201)
-def sign_up(form: SignUp):
-    username = form.username.lower()
+SIGNUP_SENT = {"pending": True, "detail": "Check your email for a 6-digit code."}
+
+
+@router.post("/accounts", status_code=202)
+def sign_up(form: SignUp, background: BackgroundTasks):
+    """Start a sign-up. The account is created only once the emailed code is confirmed."""
+    require_mail()
+    username, email = form.username.lower(), form.email.lower()
     profile = (form.profile or Profile(name=form.username)).model_dump()
     with database() as db:
-        created = db.execute("INSERT INTO ludo.accounts(username, password_hash, profile) VALUES(%s,%s,%s) "
-                             "ON CONFLICT (username) DO NOTHING RETURNING id",
-                             (username, hash_password(form.password), Jsonb(profile))).fetchone()
-        if created is None:
+        if db.execute("SELECT 1 FROM ludo.accounts WHERE username=%s", (username,)).fetchone():
             raise HTTPException(409, "That username is taken.")
+        password_hash = hash_password(form.password)  # Hashed on both paths so timing reveals nothing.
+        if not mail_allowed(email):
+            raise HTTPException(429, "Too many codes sent to this address. Try again in a few minutes.")
+        if db.execute("SELECT 1 FROM ludo.accounts WHERE email=%s", (email,)).fetchone():
+            # Same reply as a new address, so the form never reveals who has an account.
+            background.add_task(mail.send, email, "Someone tried to sign up with your email", [
+                "Someone tried to create a Ludo account with this email address, which already has an account.",
+                "If it was you, sign in, or use \u201cForgot password?\u201d to set a new password. "
+                "Otherwise you can ignore this message."])
+            return SIGNUP_SENT
+        code = new_code()
+        db.execute("INSERT INTO ludo.signups(email, username, password_hash, profile, code_hash, expires_at) "
+                   "VALUES(%s,%s,%s,%s,%s, now() + make_interval(mins => %s)) ON CONFLICT (email) DO UPDATE SET "
+                   "username=EXCLUDED.username, password_hash=EXCLUDED.password_hash, profile=EXCLUDED.profile, "
+                   "code_hash=EXCLUDED.code_hash, attempts=0, sent_at=now(), expires_at=EXCLUDED.expires_at",
+                   (email, username, password_hash, Jsonb(profile),
+                    code_hash("signup", email, code), CODE_MINUTES))
+    background.add_task(mail.send, email, f"{code} is your Ludo code", [
+        f"Welcome to Ludo, {form.username}! Enter this code to finish creating your account.",
+        f"It expires in {CODE_MINUTES} minutes. If you didn't ask for it, ignore this email."], code)
+    return SIGNUP_SENT
+
+
+@router.post("/accounts/resend", status_code=202)
+def resend_signup_code(form: EmailOnly, background: BackgroundTasks):
+    require_mail()
+    email = form.email.lower()
+    with database() as db:
+        pending = db.execute("SELECT username, sent_at FROM ludo.signups WHERE email=%s FOR UPDATE",
+                             (email,)).fetchone()
+        if pending and time.time() - pending["sent_at"].timestamp() < RESEND_SECONDS:
+            raise HTTPException(429, "Wait a minute before asking for another code.",
+                                headers={"Retry-After": str(RESEND_SECONDS)})
+        if pending and mail_allowed(email):
+            code = new_code()
+            db.execute("UPDATE ludo.signups SET code_hash=%s, attempts=0, sent_at=now(), "
+                       "expires_at=now() + make_interval(mins => %s) WHERE email=%s",
+                       (code_hash("signup", email, code), CODE_MINUTES, email))
+            background.add_task(mail.send, email, f"{code} is your Ludo code", [
+                f"Enter this code to finish creating your Ludo account. It expires in {CODE_MINUTES} minutes."], code)
+    return SIGNUP_SENT
+
+
+@router.post("/accounts/verify", status_code=201)
+def verify_signup(form: Verify):
+    email = form.email.lower()
+    with database() as db:
+        try:
+            pending = check_code(db, "signups", "email", email, "signup", email, form.code)
+        except HTTPException:
+            db.commit()  # Keep the attempt count even though the request fails.
+            raise
+        created = db.execute(
+            "INSERT INTO ludo.accounts(username, email, password_hash, profile) VALUES(%s,%s,%s,%s) "
+            "ON CONFLICT DO NOTHING RETURNING id",
+            (pending["username"], email, pending["password_hash"], Jsonb(pending["profile"]))).fetchone()
+        if created is None:
+            db.commit()
+            raise HTTPException(409, "That username or email was taken meanwhile. Please sign up again.")
         token = start_session(db, created["id"])
         return dict(token=token, account=summary(db, created["id"]))
 
 
+RESET_SENT = {"detail": "If an account uses that email, we sent it a 6-digit code."}
+
+
+@router.post("/password/forgot", status_code=202)
+def forgot_password(form: EmailOnly, background: BackgroundTasks):
+    require_mail()
+    email = form.email.lower()
+    with database() as db:
+        account = db.execute("SELECT id FROM ludo.accounts WHERE email=%s", (email,)).fetchone()
+        if account is None:
+            return RESET_SENT
+        recent = db.execute("SELECT 1 FROM ludo.password_resets WHERE account_id=%s AND "
+                            "sent_at > now() - make_interval(secs => %s)", (account["id"], RESEND_SECONDS)).fetchone()
+        if recent or not mail_allowed(email):
+            return RESET_SENT
+        code = new_code()
+        db.execute("INSERT INTO ludo.password_resets(account_id, code_hash, expires_at) "
+                   "VALUES(%s,%s, now() + make_interval(mins => %s)) ON CONFLICT (account_id) DO UPDATE SET "
+                   "code_hash=EXCLUDED.code_hash, attempts=0, sent_at=now(), expires_at=EXCLUDED.expires_at",
+                   (account["id"], code_hash("reset", email, code), CODE_MINUTES))
+    background.add_task(mail.send, email, f"{code} is your Ludo password reset code", [
+        f"Enter this code to choose a new password. It expires in {CODE_MINUTES} minutes.",
+        "If you didn't ask to reset your password, ignore this email; your password stays the same."], code)
+    return RESET_SENT
+
+
+@router.post("/password/reset", status_code=201)
+def reset_password(form: Reset):
+    email = form.email.lower()
+    with database() as db:
+        account = db.execute("SELECT id FROM ludo.accounts WHERE email=%s", (email,)).fetchone()
+        if account is None:
+            raise HTTPException(400, "That code has expired. Request a new one.")
+        try:
+            check_code(db, "password_resets", "account_id", account["id"], "reset", email, form.code)
+        except HTTPException:
+            db.commit()
+            raise
+        db.execute("UPDATE ludo.accounts SET password_hash=%s WHERE id=%s", (hash_password(form.password), account["id"]))
+        # A reset signs out every device.
+        sessions = db.execute("DELETE FROM ludo.sessions WHERE account_id=%s RETURNING token_hash",
+                              (account["id"],)).fetchall()
+        token = start_session(db, account["id"])
+        result = dict(token=token, account=summary(db, account["id"]))
+    forget_sessions(*(row["token_hash"] for row in sessions))
+    return result
+
+
 @router.post("/sessions", status_code=201)
 def sign_in(form: SignIn):
-    username = form.username.lower()
-    wait = limiter.hit("login-user", username)
+    login = form.login.strip().lower()
+    wait = limiter.hit("login-user", login)
     if wait:
-        raise HTTPException(429, f"Too many attempts for this username. Try again in {wait} seconds.",
+        raise HTTPException(429, f"Too many attempts for this account. Try again in {wait} seconds.",
                             headers={"Retry-After": str(wait)})
+    column = "email" if "@" in login else "username"
     with database() as db:
-        row = db.execute("SELECT id, password_hash FROM ludo.accounts WHERE username=%s", (username,)).fetchone()
+        row = db.execute(f"SELECT id, password_hash FROM ludo.accounts WHERE {column}=%s", (login,)).fetchone()
         valid = check_password(form.password, row["password_hash"] if row else _DUMMY_HASH)
         if not row or not valid:
-            raise HTTPException(401, "Wrong username or password.")
+            raise HTTPException(401, "Wrong username, email or password.")
         token = start_session(db, row["id"])
         return dict(token=token, account=summary(db, row["id"]))
 

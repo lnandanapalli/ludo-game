@@ -15,7 +15,7 @@ export default function About() {
     <ul>
       <li>No ads, no tracking, no cookies. Your browser keeps your current seat and sign-in in its local storage.</li>
       <li>Rooms store the board, player names and avatars. Finished rooms are deleted after two days and idle rooms after thirty.</li>
-      <li>An account stores your username, a salted password hash, your profile and your game results. You can delete it at any time from <Link to="/account">your account page</Link>.</li>
+      <li>An account stores your username, email address, a salted password hash, your profile and your game results. Your email is used only for sign-up and password-reset codes. You can delete your account at any time from <Link to="/account">your account page</Link>.</li>
       <li>Your network address is used only briefly, in memory, to limit abuse.</li>
     </ul>
     <h3>Fair play</h3>
