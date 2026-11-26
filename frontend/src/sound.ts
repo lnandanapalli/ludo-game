@@ -48,7 +48,7 @@ function notes(pitches: number[], spacing: number, duration: number, delay = 0) 
 /** `landing` is how many seconds until an animated pawn reaches its square. */
 let noise: AudioBuffer | undefined
 
-/** Dice clattering on a board: filtered noise clicks that slow down, then a soft landing thud. */
+/** Dice clattering on a board: filtered noise clicks that slow down. */
 function rattle() {
   if (!enabled || !context || !output || context.state !== 'running') return
   if (!noise) {
@@ -77,19 +77,6 @@ function rattle() {
     source.start(at)
     source.stop(at + 0.07)
   })
-  const at = start + 0.5
-  const thud = context.createOscillator()
-  const envelope = context.createGain()
-  thud.type = 'sine'
-  thud.frequency.setValueAtTime(170, at)
-  thud.frequency.exponentialRampToValueAtTime(70, at + 0.12)
-  envelope.gain.setValueAtTime(0.0001, at)
-  envelope.gain.exponentialRampToValueAtTime(0.35, at + 0.004)
-  envelope.gain.exponentialRampToValueAtTime(0.0001, at + 0.16)
-  thud.connect(envelope).connect(output)
-  thud.onended = () => { thud.disconnect(); envelope.disconnect() }
-  thud.start(at)
-  thud.stop(at + 0.18)
 }
 
 export function playChanges(old: Match, next: Match, landing?: number) {
