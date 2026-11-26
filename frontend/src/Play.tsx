@@ -31,16 +31,12 @@ export default function Play({ session, leave, forget }: { session: Session; lea
   useLayoutEffect(() => {
     if (!travel || !traveler.current) return
     const path = travel.move.path
-    const frames: Keyframe[] = []
-    path.forEach(([row, col], i) => {
-      if (i) {
-        const [r, c] = path[i - 1]
-        frames.push({ transform: `translate(${(c + col) * 50}%, ${(r + row) * 50 - 18}%)`, offset: (i - .5) / (path.length - 1) })
-      }
-      frames.push({ transform: `translate(${col * 100}%, ${row * 100}%)`, offset: i / (path.length - 1) })
-    })
+    // Glide through each square's centre at a steady pace (linear between squares), easing in and out overall.
+    const frames: Keyframe[] = path.map(([row, col], i) => ({
+      transform: `translate(${col * 100}%, ${row * 100}%)`, offset: i / (path.length - 1), easing: 'linear',
+    }))
     const movement = traveler.current.animate(frames, {
-      duration: travelDuration(path), delay: travel.delay, fill: 'both',
+      duration: travelDuration(path), delay: travel.delay, fill: 'both', easing: 'ease-in-out',
     })
     movement.onfinish = () => setTravel(null)
     return () => movement.cancel()
