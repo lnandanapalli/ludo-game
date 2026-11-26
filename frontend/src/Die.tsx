@@ -24,6 +24,8 @@ export default function Die({ value, rolling = false }: { value: number; rolling
   return <span className="die-3d" aria-hidden="true">
     <span className="cube" data-value={shown} data-rolling={rolling || undefined}
       style={{ transform: `rotateX(${x + spin}deg) rotateY(${y + spin}deg)` }}>
+      {/* A solid core just inside the faces, so the rounded corners never show through the die. */}
+      {[1, 2, 3, 4, 5, 6].map(face => <span key={'core' + face} className="die-core" data-face={face} />)}
       {[1, 2, 3, 4, 5, 6].map(face => <Face key={face} value={face} />)}
     </span>
   </span>

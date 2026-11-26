@@ -10,6 +10,13 @@
 .cube [data-face="5"] { transform: rotateY(-90deg) translateZ(calc(var(--s) / 2)); }
 .cube [data-face="3"] { transform: rotateX(90deg) translateZ(calc(var(--s) / 2)); }
 .cube [data-face="4"] { transform: rotateX(-90deg) translateZ(calc(var(--s) / 2)); }
+.die-3d .cube .die-core { position: absolute; inset: calc(var(--s) * .04); display: block; border-radius: calc(var(--s) * .1); background: #e6e0cf; backface-visibility: hidden; }
+.cube .die-core[data-face="1"] { transform: translateZ(calc(var(--s) / 2 - 1.5px)); }
+.cube .die-core[data-face="6"] { transform: rotateY(180deg) translateZ(calc(var(--s) / 2 - 1.5px)); }
+.cube .die-core[data-face="2"] { transform: rotateY(90deg) translateZ(calc(var(--s) / 2 - 1.5px)); }
+.cube .die-core[data-face="5"] { transform: rotateY(-90deg) translateZ(calc(var(--s) / 2 - 1.5px)); }
+.cube .die-core[data-face="3"] { transform: rotateX(90deg) translateZ(calc(var(--s) / 2 - 1.5px)); }
+.cube .die-core[data-face="4"] { transform: rotateX(-90deg) translateZ(calc(var(--s) / 2 - 1.5px)); }
 .cube[data-rolling] { animation: cube-tumble .45s linear infinite; transition: none; }
 @keyframes cube-tumble {
   from { transform: rotateX(0) rotateY(0) rotateZ(0); }
