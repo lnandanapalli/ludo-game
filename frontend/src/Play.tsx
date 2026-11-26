@@ -24,35 +24,9 @@ const presenceLabels = { offline: 'Offline', left: 'Left', computer: 'CPU' } as 
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const travelDuration = (path: [number, number][]) => reducedMotion() ? 0 : Math.max(250, (path.length - 1) * 165)
 
-/**
- * Progress along a move as a physical curve: the pawn starts from rest, builds speed, brakes as it
- * nears the target square, and carries a little momentum past it before settling back like a damped
- * spring. Returned as a CSS linear() easing (with a plain ease where linear() is unsupported).
- */
-function inertialEasing(squares: number) {
-  if (!CSS.supports('animation-timing-function', 'linear(0, 1)')) return 'ease-in-out'
-  const arrive = 0.8                         // Share of the time spent reaching the target.
-  const entry = 0.35                         // Speed left on arrival (most braking happens on the way in).
-  const speed = entry / arrive
-  const overshoot = 0.05 / Math.max(1, squares)  // A few hundredths of a square, whatever the distance.
-  // Spring frequency that yields that overshoot, but stiff enough to settle before the move ends.
-  const omega = Math.max(18, speed / overshoot / 1.6)
-  const damping = omega * 0.55
-  const points: string[] = []
-  for (let i = 0; i <= 60; i++) {
-    const t = i / 60
-    let x
-    if (t <= arrive) {
-      const u = t / arrive                   // Hermite curve: at rest at the start, `entry` speed at the target.
-      x = -2 * u ** 3 + 3 * u ** 2 + entry * (u ** 3 - u ** 2)
-    } else {
-      const tau = t - arrive                 // Damped spring around the target.
-      x = 1 + (speed / omega) * Math.exp(-damping * tau) * Math.sin(omega * tau)
-    }
-    points.push((i === 60 ? 1 : x).toFixed(4))
-  }
-  return `linear(${points.join(', ')})`
-}
+// Starts from rest, picks up speed quickly, then slows gradually into the target square and stops
+// exactly on it, with no overshoot.
+const TRAVEL_EASING = 'cubic-bezier(0.3, 0, 0.15, 1)'
 
 export default function Play({ session, leave, forget }: { session: Session; leave: () => void; forget: (message: string) => void }) {
   const [game, setGame] = useState<Match | null>(null)
@@ -61,18 +35,16 @@ export default function Play({ session, leave, forget }: { session: Session; lea
   useLayoutEffect(() => {
     if (!travel || !traveler.current) return
     const path = travel.move.path
-    // Keyframes sit evenly on each square's centre; the easing supplies the physics along the whole path.
+    // Keyframes sit evenly on each square's centre; one easing over the whole path sets the speed.
     const frames: Keyframe[] = path.map(([row, col], i) => ({
       transform: `translate(${col * 100}%, ${row * 100}%)`, offset: i / (path.length - 1), easing: 'linear',
     }))
     const timing = { duration: travelDuration(path), delay: travel.delay, fill: 'both' as const }
-    const movement = traveler.current.animate(frames, { ...timing, easing: inertialEasing(path.length - 1) })
-    // The pawn lifts while it travels and squashes slightly as it lands.
+    const movement = traveler.current.animate(frames, { ...timing, easing: TRAVEL_EASING })
+    // The pawn lifts slightly while it travels and is set down gently as it arrives.
     const icon = traveler.current.firstElementChild
-    const lift = icon?.animate([
-      { scale: 1 }, { scale: 1.14, offset: 0.15 }, { scale: 1.14, offset: 0.78 },
-      { scale: 0.92, offset: 0.88 }, { scale: 1.03, offset: 0.95 }, { scale: 1 },
-    ], timing)
+    const lift = icon?.animate([{ scale: 1 }, { scale: 1.12, offset: 0.15 }, { scale: 1.12, offset: 0.7 }, { scale: 1 }],
+      { ...timing, easing: 'ease-out' })
     movement.onfinish = () => setTravel(null)
     return () => { movement.cancel(); lift?.cancel() }
   }, [travel])
